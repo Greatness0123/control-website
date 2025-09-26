@@ -1,0 +1,10 @@
+# Allow all crawlers
+User-agent: *
+Allow: /
+
+# Disallow admin and dashboard paths
+Disallow: /admin/
+Disallow: /dashboard/
+
+# Sitemap
+Sitemap: https://control.ai/sitemap.xml
