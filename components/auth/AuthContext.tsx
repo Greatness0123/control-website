@@ -8,7 +8,11 @@ import {
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   User,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  GoogleAuthProvider,
+  GithubAuthProvider,
+  signInWithPopup,
+  AuthProvider as FirebaseAuthProvider
 } from 'firebase/auth';
 import { firebaseApp } from '@/lib/firebase/client';
 
@@ -19,6 +23,8 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithGithub: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -73,13 +79,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithProvider = async (provider: FirebaseAuthProvider) => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error(`Error signing in with provider:`, error);
+      throw error;
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithProvider(provider);
+  };
+
+  const signInWithGithub = async () => {
+    const provider = new GithubAuthProvider();
+    await signInWithProvider(provider);
+  };
+
   const value = {
     user,
     loading,
     signIn,
     signUp,
     signOut,
-    resetPassword
+    resetPassword,
+    signInWithGoogle,
+    signInWithGithub
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

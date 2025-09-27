@@ -12,10 +12,6 @@
     @apply font-sans;
   }
 
-  body {
-    @apply bg-white text-black;
-  }
-
   /* Reduced motion preference */
   @media (prefers-reduced-motion: reduce) {
     * {
@@ -34,6 +30,7 @@
   /* Headings */
   h1, h2, h3, h4, h5, h6 {
     @apply font-sans font-bold;
+    letter-spacing: -0.025em;
   }
 
   h1 {
@@ -112,13 +109,15 @@
     @apply bg-red-100 text-red-800;
   }
 }
+
 :root {
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 0, 0, 0;
   --background-end-rgb: 0, 0, 0;
 }
 
-body {
+/* Dark theme styles for pages with dark backgrounds */
+.dark-theme {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
       to bottom,
@@ -128,6 +127,17 @@ body {
     rgb(var(--background-start-rgb));
 }
 
+/* Light theme styles for pages with light backgrounds */
+.light-theme {
+  color: rgb(0, 0, 0);
+  background: rgb(255, 255, 255);
+}
+
+/* Default body style - using light theme by default */
+body {
+  @apply light-theme;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -135,35 +145,38 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Dark theme scrollbar */
+.dark-theme::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-theme::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark-theme::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
-/* Reduced motion preference */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* Typography adjustments */
-h1, h2, h3, h4, h5, h6 {
-  letter-spacing: -0.025em;
-}
-
 /* Focus styles */
-*:focus-visible {
+.dark-theme *:focus-visible {
   outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.light-theme *:focus-visible {
+  outline: 2px solid black;
   outline-offset: 2px;
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import ParticleBackground from '@/components/ui/ParticleBackground';
 
@@ -10,14 +11,14 @@ const DownloadCard = ({
   platform, 
   version, 
   size, 
-  icon, 
+  logoSrc, 
   downloadUrl,
   delay = 0 
 }: { 
   platform: string; 
   version: string; 
   size: string;
-  icon: string;
+  logoSrc: string;
   downloadUrl: string;
   delay?: number;
 }) => {
@@ -29,7 +30,15 @@ const DownloadCard = ({
       transition={{ delay, duration: 0.5 }}
     >
       <div className="flex items-center mb-4">
-        <div className="text-4xl mr-4">{icon}</div>
+        <div className="mr-4 w-12 h-12 relative">
+          <Image 
+            src={logoSrc} 
+            alt={`${platform} logo`} 
+            width={48} 
+            height={48} 
+            className="object-contain"
+          />
+        </div>
         <div>
           <h3 className="text-xl font-bold">{platform}</h3>
           <p className="text-sm text-gray-300">Version {version} • {size}</p>
@@ -38,8 +47,15 @@ const DownloadCard = ({
       <div className="flex flex-col gap-3">
         <a 
           href={downloadUrl} 
-          className="bg-white text-black px-4 py-2 rounded-lg font-medium hover:bg-opacity-90 transition text-center"
+          className="bg-white text-black px-4 py-2 rounded-lg font-medium hover:bg-opacity-90 transition text-center flex items-center justify-center"
         >
+          <Image 
+            src={platform === "macOS" ? "/images/logos/apple-logo.png" : "/images/logos/windows-logo.png"} 
+            alt={`${platform} icon`} 
+            width={16} 
+            height={16} 
+            className="mr-2 object-contain"
+          />
           Download
         </a>
         <a 
@@ -183,7 +199,7 @@ export default function DownloadsPage() {
                 platform="Windows" 
                 version="2.0.1" 
                 size="85 MB"
-                icon="🪟"
+                logoSrc="/images/logos/windows-logo.png"
                 downloadUrl="/downloads/control-ai-2.0.1-win-x64.exe"
                 delay={0.1}
               />
@@ -191,7 +207,7 @@ export default function DownloadsPage() {
                 platform="macOS" 
                 version="2.0.1" 
                 size="92 MB"
-                icon="🍎"
+                logoSrc="/images/logos/apple-logo.png"
                 downloadUrl="/downloads/control-ai-2.0.1-macos.dmg"
                 delay={0.2}
               />
@@ -199,7 +215,7 @@ export default function DownloadsPage() {
                 platform="Linux" 
                 version="2.0.1" 
                 size="78 MB"
-                icon="🐧"
+                logoSrc="/images/logos/linux-logo.png"
                 downloadUrl="/downloads/control-ai-2.0.1-linux-x64.AppImage"
                 delay={0.3}
               />

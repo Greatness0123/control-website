@@ -21,7 +21,23 @@ import {
 } from 'lucide-react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '@/lib/firebase/client';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  query, 
+  where, 
+  orderBy, 
+  limit,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+  DocumentData,
+  setDoc,
+  Timestamp
+} from 'firebase/firestore';
 import {
   LineChart,
   Line,
@@ -33,55 +49,63 @@ import {
   BarChart,
   Bar,
   Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
 
-// Sample data for charts
-const usageData = [
-  { date: '2023-09-20', tokens: 1200 },
-  { date: '2023-09-21', tokens: 1800 },
-  { date: '2023-09-22', tokens: 1400 },
-  { date: '2023-09-23', tokens: 2200 },
-  { date: '2023-09-24', tokens: 1900 },
-  { date: '2023-09-25', tokens: 2400 },
-  { date: '2023-09-26', tokens: 2100 },
-];
+// Define types for user data and API keys
+interface UserData {
+  email?: string;
+  displayName?: string;
+  plan?: string;
+  token_balance?: number;
+  company?: string;
+  webhook_url?: string;
+  email_notifications?: boolean;
+  created_at?: any;
+  [key: string]: any; // Allow any other properties
+}
 
-const modelUsageData = [
-  { name: 'GPT-3.5', value: 65 },
-  { name: 'GPT-4', value: 30 },
-  { name: 'Claude', value: 5 },
-];
+interface ApiKey {
+  id: string;
+  name: string;
+  tier: string;
+  user_id?: string;
+  user_email?: string;
+  quota: number;
+  usage: number;
+  created_at?: any;
+  last_used?: any;
+  status: string;
+  created?: string;
+  lastUsed?: string;
+}
 
-// Sample API keys
-const initialApiKeys = [
-  {
-    id: 'ctrl-abcdefghijklmn',
-    name: 'Production API Key',
-    tier: 'pro',
-    created: '2023-08-15',
-    lastUsed: '2023-09-26',
-    status: 'active',
-  },
-  {
-    id: 'ctrl-opqrstuvwxyzab',
-    name: 'Development API Key',
-    tier: 'free',
-    created: '2023-09-01',
-    lastUsed: '2023-09-25',
-    status: 'active',
-  },
-];
+interface UsageData {
+  date: string;
+  tokens: number;
+  api_calls: number;
+}
+
+interface ModelUsageData {
+  name: string;
+  value: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, loading, error] = useAuthState(auth);
-  const [userData, setUserData] = useState<any>(null);
-  const [apiKeys, setApiKeys] = useState(initialApiKeys);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [usageData, setUsageData] = useState<UsageData[]>([]);
+  const [modelUsageData, setModelUsageData] = useState<ModelUsageData[]>([]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isCreatingKey, setIsCreatingKey] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
-  const [newKeyTier, setNewKeyTier] = useState('free');
   const [activeTab, setActiveTab] = useState('overview');
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -90,25 +114,187 @@ export default function DashboardPage() {
     }
   }, [user, loading, router]);
 
-  // Fetch user data
+  // Fetch user data with error handling
   useEffect(() => {
     const fetchUserData = async () => {
       if (user) {
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
-            setUserData(userDoc.data());
+            setUserData(userDoc.data() as UserData);
           } else {
-            console.error('No user data found');
+            // Create user document if it doesn't exist
+            const newUserData: UserData = {
+              email: user.email || '',
+              displayName: user.displayName || user.email?.split('@')[0] || '',
+              plan: 'Free',
+              token_balance: 10000,
+              created_at: serverTimestamp(),
+            };
+            await setDoc(doc(db, 'users', user.uid), newUserData);
+            setUserData(newUserData);
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
+          // Set default user data on error
+          setUserData({
+            email: user.email || '',
+            displayName: user.displayName || user.email?.split('@')[0] || '',
+            plan: 'Free',
+            token_balance: 10000,
+            created_at: new Date(),
+          });
         }
       }
     };
 
-    fetchUserData();
+    if (user) {
+      fetchUserData();
+    }
   }, [user]);
+
+  // Fetch API keys with error handling
+  useEffect(() => {
+    const fetchApiKeys = async () => {
+      if (user) {
+        try {
+          const keysQuery = query(
+            collection(db, 'api_keys'),
+            where('user_id', '==', user.uid)
+          );
+          
+          const keysSnapshot = await getDocs(keysQuery);
+          const keys = keysSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              ...data,
+              created: data.created_at?.toDate().toISOString().split('T')[0] || 'N/A',
+              lastUsed: data.last_used?.toDate().toISOString().split('T')[0] || 'N/A',
+            } as ApiKey;
+          });
+          
+          setApiKeys(keys);
+        } catch (error) {
+          console.error('Error fetching API keys:', error);
+          // Set empty array on error
+          setApiKeys([]);
+        }
+      }
+    };
+
+    fetchApiKeys();
+  }, [user]);
+
+  // Fetch real usage data from Firebase
+  useEffect(() => {
+    const fetchUsageData = async () => {
+      if (user) {
+        try {
+          // Get the last 7 days
+          const today = new Date();
+          const last7Days = Array.from({length: 7}, (_, i) => {
+            const date = new Date();
+            date.setDate(today.getDate() - (6 - i));
+            return date.toISOString().split('T')[0];
+          });
+
+          // Query usage data from Firebase
+          const usageQuery = query(
+            collection(db, 'usage'),
+            where('user_id', '==', user.uid),
+            where('date', '>=', last7Days[0]),
+            orderBy('date', 'asc')
+          );
+
+          const usageSnapshot = await getDocs(usageQuery);
+          const usageByDate: Record<string, {tokens: number, api_calls: number}> = {};
+
+          usageSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const date = data.date;
+            usageByDate[date] = {
+              tokens: (usageByDate[date]?.tokens || 0) + (data.tokens || 0),
+              api_calls: (usageByDate[date]?.api_calls || 0) + (data.api_calls || 0)
+            };
+          });
+
+          // Fill in missing dates with zero
+          const formattedUsageData = last7Days.map(date => ({
+            date,
+            tokens: usageByDate[date]?.tokens || 0,
+            api_calls: usageByDate[date]?.api_calls || 0
+          }));
+
+          setUsageData(formattedUsageData);
+        } catch (error) {
+          console.error('Error fetching usage data:', error);
+          // Generate zero data on error instead of random data
+          const today = new Date();
+          const zeroData = Array.from({length: 7}, (_, i) => {
+            const date = new Date();
+            date.setDate(today.getDate() - (6 - i));
+            return {
+              date: date.toISOString().split('T')[0],
+              tokens: 0,
+              api_calls: 0
+            };
+          });
+          setUsageData(zeroData);
+        }
+      }
+    };
+
+    fetchUsageData();
+  }, [user]);
+
+  // Fetch real model usage data from Firebase
+  useEffect(() => {
+    const fetchModelUsageData = async () => {
+      if (user) {
+        try {
+          const modelUsageQuery = query(
+            collection(db, 'model_usage'),
+            where('user_id', '==', user.uid)
+          );
+
+          const modelUsageSnapshot = await getDocs(modelUsageQuery);
+          
+          if (!modelUsageSnapshot.empty) {
+            const modelUsage = modelUsageSnapshot.docs.map(doc => ({
+              name: doc.data().model,
+              value: doc.data().percentage || 0
+            }));
+            setModelUsageData(modelUsage);
+          } else {
+            // Set zero usage data instead of random data
+            setModelUsageData([
+              { name: 'GPT-3.5', value: 0 },
+              { name: 'GPT-4', value: 0 },
+              { name: 'Claude', value: 0 },
+            ]);
+          }
+        } catch (error) {
+          console.error('Error fetching model usage data:', error);
+          // Set zero usage data on error
+          setModelUsageData([
+            { name: 'GPT-3.5', value: 0 },
+            { name: 'GPT-4', value: 0 },
+            { name: 'Claude', value: 0 },
+          ]);
+        }
+      }
+    };
+
+    fetchModelUsageData();
+  }, [user]);
+
+  // Set loading state to false when all data is loaded
+  useEffect(() => {
+    if (userData && apiKeys && usageData.length > 0 && modelUsageData.length > 0) {
+      setIsLoading(false);
+    }
+  }, [userData, apiKeys, usageData, modelUsageData]);
 
   // Copy API key to clipboard
   const copyToClipboard = (key: string) => {
@@ -117,45 +303,131 @@ export default function DashboardPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Create new API key
-  const handleCreateKey = () => {
-    if (!newKeyName) return;
+  // Create new API key - tier based on user's current plan
+  const handleCreateKey = async () => {
+    if (!newKeyName || !user || !userData) return;
     
-    // In a real app, this would call your API to create a new key
-    const newKey = {
-      id: `ctrl-${Math.random().toString(36).substring(2, 10)}`,
-      name: newKeyName,
-      tier: newKeyTier,
-      created: new Date().toISOString().split('T')[0],
-      lastUsed: '-',
-      status: 'active',
-    };
+    setIsLoading(true);
     
-    setApiKeys([...apiKeys, newKey]);
-    setIsCreatingKey(false);
-    setNewKeyName('');
-    setNewKeyTier('free');
+    try {
+      // Generate a random API key
+      const keyId = `ctrl-${Math.random().toString(36).substring(2, 10)}${Math.random().toString(36).substring(2, 10)}`;
+      
+      // Set tier based on user's current plan - users cannot choose tier
+      let tier = 'free';
+      let quota = 10000;
+      
+      switch (userData.plan) {
+        case 'Pro':
+          tier = 'pro';
+          quota = 1000000;
+          break;
+        case 'Pay-as-you-go':
+          tier = 'payg';
+          quota = 0; // Unlimited for pay-as-you-go
+          break;
+        default:
+          tier = 'free';
+          quota = 10000;
+          break;
+      }
+      
+      // Create new key in Firestore
+      const newKey: ApiKey = {
+        id: keyId,
+        name: newKeyName,
+        tier: tier,
+        user_id: user.uid,
+        user_email: user.email || '',
+        quota: quota,
+        usage: 0,
+        created_at: serverTimestamp(),
+        last_used: null,
+        status: 'active',
+      };
+      
+      await addDoc(collection(db, 'api_keys'), newKey);
+      
+      // Add to local state
+      setApiKeys([
+        {
+          ...newKey,
+          created: new Date().toISOString().split('T')[0],
+          lastUsed: '-',
+        },
+        ...apiKeys
+      ]);
+      
+      setIsCreatingKey(false);
+      setNewKeyName('');
+    } catch (error) {
+      console.error('Error creating API key:', error);
+      setErrorMessage('Failed to create API key. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Revoke API key
-  const revokeKey = (keyId: string) => {
-    // In a real app, this would call your API to revoke the key
-    setApiKeys(apiKeys.map(key => 
-      key.id === keyId ? { ...key, status: 'revoked' } : key
-    ));
+  const revokeKey = async (keyId: string) => {
+    try {
+      // Find the document with this key ID
+      const keysQuery = query(
+        collection(db, 'api_keys'),
+        where('id', '==', keyId)
+      );
+      
+      const keySnapshot = await getDocs(keysQuery);
+      
+      if (!keySnapshot.empty) {
+        const keyDoc = keySnapshot.docs[0];
+        await updateDoc(doc(db, 'api_keys', keyDoc.id), {
+          status: 'revoked'
+        });
+        
+        // Update local state
+        setApiKeys(apiKeys.map(key => 
+          key.id === keyId ? { ...key, status: 'revoked' } : key
+        ));
+      }
+    } catch (error) {
+      console.error('Error revoking API key:', error);
+      setErrorMessage('Failed to revoke API key.');
+    }
   };
 
   // Delete API key
-  const deleteKey = (keyId: string) => {
-    // In a real app, this would call your API to delete the key
-    setApiKeys(apiKeys.filter(key => key.id !== keyId));
+  const deleteKey = async (keyId: string) => {
+    try {
+      // Find the document with this key ID
+      const keysQuery = query(
+        collection(db, 'api_keys'),
+        where('id', '==', keyId)
+      );
+      
+      const keySnapshot = await getDocs(keysQuery);
+      
+      if (!keySnapshot.empty) {
+        const keyDoc = keySnapshot.docs[0];
+        await deleteDoc(doc(db, 'api_keys', keyDoc.id));
+        
+        // Update local state
+        setApiKeys(apiKeys.filter(key => key.id !== keyId));
+      }
+    } catch (error) {
+      console.error('Error deleting API key:', error);
+      setErrorMessage('Failed to delete API key.');
+    }
   };
 
   // Loading state
-  if (loading) {
+  if (loading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-black"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
@@ -163,7 +435,7 @@ export default function DashboardPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <AlertTriangle className="mx-auto h-12 w-12 text-red-500 mb-4" />
           <h1 className="text-2xl font-bold mb-2">Authentication Error</h1>
@@ -204,63 +476,20 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Dashboard Navigation */}
-      <nav className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-4">
-          <div className="flex overflow-x-auto">
-            <button
-              className={`px-6 py-4 font-medium text-sm border-b-2 ${
-                activeTab === 'overview'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              onClick={() => setActiveTab('overview')}
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="container mx-auto px-4 py-4">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <p>{errorMessage}</p>
+            <button 
+              className="mt-2 text-sm underline"
+              onClick={() => setErrorMessage(null)}
             >
-              Overview
-            </button>
-            <button
-              className={`px-6 py-4 font-medium text-sm border-b-2 ${
-                activeTab === 'api-keys'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              onClick={() => setActiveTab('api-keys')}
-            >
-              API Keys
-            </button>
-            <button
-              className={`px-6 py-4 font-medium text-sm border-b-2 ${
-                activeTab === 'usage'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              onClick={() => setActiveTab('usage')}
-            >
-              Usage
-            </button>
-            <button
-              className={`px-6 py-4 font-medium text-sm border-b-2 ${
-                activeTab === 'billing'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              onClick={() => setActiveTab('billing')}
-            >
-              Billing
-            </button>
-            <button
-              className={`px-6 py-4 font-medium text-sm border-b-2 ${
-                activeTab === 'settings'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              onClick={() => setActiveTab('settings')}
-            >
-              Settings
+              Dismiss
             </button>
           </div>
         </div>
-      </nav>
+      )}
 
       {/* Dashboard Content */}
       <div className="container mx-auto px-4 py-8">
@@ -279,22 +508,32 @@ export default function DashboardPage() {
                   <h3 className="text-gray-500 text-sm font-medium">API Calls (30d)</h3>
                   <BarChart3 className="text-gray-400" size={20} />
                 </div>
-                <p className="text-3xl font-bold">1,248</p>
-                <p className="text-sm text-green-600 mt-2">+12.5% from last month</p>
+                <p className="text-3xl font-bold">
+                  {usageData.reduce((sum, day) => sum + (day.api_calls || 0), 0).toLocaleString()}
+                </p>
+                <p className="text-sm text-green-600 mt-2">
+                  {usageData.length > 1 && usageData[usageData.length - 1].api_calls > usageData[usageData.length - 2].api_calls ? '+' : ''}
+                  {usageData.length > 1 ? Math.abs(((usageData[usageData.length - 1].api_calls - usageData[usageData.length - 2].api_calls) / (usageData[usageData.length - 2].api_calls || 1)) * 100).toFixed(1) : '0'}% from yesterday
+                </p>
               </motion.div>
               
               <motion.div 
                 className="bg-white rounded-2xl shadow-soft p-6"
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                animate={{ opacity: 1, y: 0 }}"
                 transition={{ duration: 0.3, delay: 0.1 }}
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-gray-500 text-sm font-medium">Tokens Used (30d)</h3>
                   <BarChart3 className="text-gray-400" size={20} />
                 </div>
-                <p className="text-3xl font-bold">42,580</p>
-                <p className="text-sm text-green-600 mt-2">+8.3% from last month</p>
+                <p className="text-3xl font-bold">
+                  {usageData.reduce((sum, day) => sum + (day.tokens || 0), 0).toLocaleString()}
+                </p>
+                <p className="text-sm text-green-600 mt-2">
+                  {usageData.length > 1 && usageData[usageData.length - 1].tokens > usageData[usageData.length - 2].tokens ? '+' : ''}
+                  {usageData.length > 1 ? Math.abs(((usageData[usageData.length - 1].tokens - usageData[usageData.length - 2].tokens) / (usageData[usageData.length - 2].tokens || 1)) * 100).toFixed(1) : '0'}% from yesterday
+                </p>
               </motion.div>
               
               <motion.div 
@@ -308,7 +547,11 @@ export default function DashboardPage() {
                   <Key className="text-gray-400" size={20} />
                 </div>
                 <p className="text-3xl font-bold">{apiKeys.filter(key => key.status === 'active').length}</p>
-                <p className="text-sm text-gray-500 mt-2">Last created on {apiKeys[0].created}</p>
+                <p className="text-sm text-gray-500 mt-2">
+                  {apiKeys.length > 0 
+                    ? `Last created on ${apiKeys[0].created}` 
+                    : 'No keys created yet'}
+                </p>
               </motion.div>
               
               <motion.div 
@@ -321,7 +564,7 @@ export default function DashboardPage() {
                   <h3 className="text-gray-500 text-sm font-medium">Token Balance</h3>
                   <CreditCard className="text-gray-400" size={20} />
                 </div>
-                <p className="text-3xl font-bold">{userData?.token_balance || 0}</p>
+                <p className="text-3xl font-bold">{userData?.token_balance?.toLocaleString() || 0}</p>
                 <Link href="/dashboard/billing" className="text-sm text-accent hover:underline mt-2 inline-block">
                   Buy more tokens
                 </Link>
@@ -352,7 +595,7 @@ export default function DashboardPage() {
                     />
                     <YAxis />
                     <Tooltip 
-                      formatter={(value) => [`${value} tokens`, 'Usage']}
+                      formatter={(value, name) => [`${value} ${name === 'tokens' ? 'tokens' : 'calls'}`, name === 'tokens' ? 'Tokens' : 'API Calls']]}
                       labelFormatter={(date) => {
                         const d = new Date(date);
                         return `${d.toLocaleDateString()}`;
@@ -370,13 +613,49 @@ export default function DashboardPage() {
               </div>
             </motion.div>
             
+            {/* API Calls Chart */}
+            <motion.div 
+              className="bg-white rounded-2xl shadow-soft p-6 mb-8"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}"
+              transition={{ duration: 0.3, delay: 0.5 }}
+            >
+              <h3 className="text-lg font-bold mb-6">API Calls (Last 7 Days)</h3>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={usageData}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(date) => {
+                        const d = new Date(date);
+                        return `${d.getMonth() + 1}/${d.getDate()}`;
+                      }}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      formatter={(value) => [`${value} calls`, 'API Calls']}
+                      labelFormatter={(date) => {
+                        const d = new Date(date);
+                        return `${d.toLocaleDateString()}`;
+                      }}
+                    />
+                    <Bar dataKey="api_calls" fill="#000000" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
+            
             {/* Quick Actions and Recent API Keys */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <motion.div 
                 className="bg-white rounded-2xl shadow-soft p-6"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.5 }}
+                transition={{ duration: 0.3, delay: 0.6 }}
               >
                 <h3 className="text-lg font-bold mb-6">Quick Actions</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -415,7 +694,7 @@ export default function DashboardPage() {
                 className="bg-white rounded-2xl shadow-soft p-6"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.6 }}
+                transition={{ duration: 0.3, delay: 0.7 }}
               >
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-bold">Your API Keys</h3>
@@ -427,21 +706,36 @@ export default function DashboardPage() {
                   </button>
                 </div>
                 <div className="space-y-4">
-                  {apiKeys.slice(0, 3).map((key) => (
-                    <div key={key.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
-                      <div>
-                        <p className="font-medium">{key.name}</p>
-                        <p className="text-sm text-gray-500 font-mono">{key.id}</p>
+                  {apiKeys.length > 0 ? (
+                    apiKeys.slice(0, 3).map((key) => (
+                      <div key={key.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                        <div>
+                          <p className="font-medium">{key.name}</p>
+                          <p className="text-sm text-gray-500 font-mono">{key.id}</p>
+                        </div>
+                        <div className="flex items-center">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {key.status}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {key.status}
-                        </span>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-6">
+                      <p className="text-gray-500">No API keys yet</p>
+                      <button 
+                        className="mt-2 text-accent hover:underline"
+                        onClick={() => {
+                          setActiveTab('api-keys');
+                          setIsCreatingKey(true);
+                        }}
+                      >
+                        Create your first API key
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
               </motion.div>
             </div>
@@ -451,10 +745,10 @@ export default function DashboardPage() {
         {/* API Keys Tab */}
         {activeTab === 'api-keys' && (
           <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">API Keys</h2>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+              <h2 className="text-2xl font-bold">API Keys Management</h2>
               <button 
-                className="btn btn-primary flex items-center"
+                className="btn btn-primary flex items-center mt-4 md:mt-0"
                 onClick={() => setIsCreatingKey(true)}
               >
                 <Plus className="mr-2" size={18} />
@@ -471,74 +765,69 @@ export default function DashboardPage() {
                 transition={{ duration: 0.3 }}
               >
                 <h3 className="text-lg font-bold mb-4">Create New API Key</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="key-name" className="block text-sm font-medium text-gray-700 mb-1">
-                      Key Name
-                    </label>
-                    <input
-                      type="text"
-                      id="key-name"
-                      className="form-input"
-                      placeholder="e.g., Production API Key"
-                      value={newKeyName}
-                      onChange={(e) => setNewKeyName(e.target.value)}
-                    />
+                <div className="mb-6">
+                  <label htmlFor="key-name" className="block text-sm font-medium text-gray-700 mb-1">
+                    Key Name
+                  </label>
+                  <input
+                    type="text"
+                    id="key-name"
+                    className="form-input w-full bg-white bg-opacity-10 border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:ring-opacity-20"
+                    placeholder="e.g., Production API Key"
+                    value={newKeyName}
+                    onChange={(e) => setNewKeyName(e.target.value)}
+                  />
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Key Tier (Based on your {userData?.plan || 'Free'} plan)
+                  </label>
+                  <div className="p-3 bg-gray-100 rounded-lg">
+                    <p className="text-sm text-gray-600">
+                      Your API key will be created with <strong>{userData?.plan || 'Free'}</strong> tier permissions.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {userData?.plan === 'Pro' ? '1,000,000 tokens/month' : 
+                       userData?.plan === 'Pay-as-you-go' ? 'Unlimited tokens (pay per use)' : 
+                       '10,000 tokens/month'}
+                    </p>
                   </div>
-                  <div>
-                    <label htmlFor="key-tier" className="block text-sm font-medium text-gray-700 mb-1">
-                      Tier
-                    </label>
-                    <select
-                      id="key-tier"
-                      className="form-input"
-                      value={newKeyTier}
-                      onChange={(e) => setNewKeyTier(e.target.value)}
-                    >
-                      <option value="free">Free</option>
-                      <option value="pro">Professional</option>
-                      <option value="payg">Pay As You Go</option>
-                    </select>
-                  </div>
-                  <div className="flex justify-end space-x-4">
-                    <button 
-                      className="btn bg-white border border-gray-300 hover:bg-gray-50"
-                      onClick={() => setIsCreatingKey(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      className="btn btn-primary"
-                      onClick={handleCreateKey}
-                      disabled={!newKeyName}
-                    >
-                      Create Key
-                    </button>
-                  </div>
+                </div>
+                <div className="flex justify-end space-x-4">
+                  <button 
+                    className="btn bg-white border border-gray-300 hover:bg-gray-50"
+                    onClick={() => setIsCreatingKey(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn btn-primary"
+                    onClick={handleCreateKey}
+                    disabled={!newKeyName}
+                  >
+                    Create Key
+                  </button>
                 </div>
               </motion.div>
             )}
             
-            {/* API Keys List */}
+            {/* API Keys Table */}
             <div className="bg-white rounded-2xl shadow-soft overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Name
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        API Key
+                        Name / Key ID
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Tier
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Created
+                        Usage / Quota
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Last Used
+                        Created
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Status
@@ -549,62 +838,65 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {apiKeys.map((key) => (
-                      <tr key={key.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{key.name}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <code className="text-sm font-mono text-gray-900">{key.id}</code>
-                            <button 
-                              className="ml-2 text-gray-400 hover:text-gray-600"
-                              onClick={() => copyToClipboard(key.id)}
-                              aria-label="Copy API key"
-                            >
-                              {copiedKey === key.id ? <Check size={16} /> : <Copy size={16} />}
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 capitalize">{key.tier}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{key.created}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{key.lastUsed}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {key.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex justify-end space-x-2">
-                            {key.status === 'active' ? (
-                              <button 
-                                className="text-gray-400 hover:text-gray-600"
-                                onClick={() => revokeKey(key.id)}
-                                aria-label="Revoke API key"
-                              >
-                                <RefreshCw size={16} />
-                              </button>
-                            ) : (
-                              <button 
-                                className="text-gray-400 hover:text-gray-600"
-                                onClick={() => deleteKey(key.id)}
-                                aria-label="Delete API key"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                    {apiKeys.length > 0 ? (
+                      apiKeys.map((key) => (
+                        <tr key={key.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{key.name}</div>
+                              <div className="text-sm text-gray-500 font-mono">{key.id}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900 capitalize">{key.tier}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {key.usage?.toLocaleString() || 0} / {key.quota > 0 ? key.quota.toLocaleString() : '∞'}
+                            </div>
+                            {key.quota > 0 && (
+                              <div className="w-24 bg-gray-200 rounded-full h-2 mt-1">
+                                <div 
+                                  className={`h-2 rounded-full ${
+                                    (key.usage / key.quota) > 0.9 ? 'bg-red-500' :
+                                    (key.usage / key.quota) > 0.7 ? 'bg-yellow-500' : 'bg-green-500'
+                                  }`} 
+                                  style={{ width: `${Math.min(100, (key.usage / key.quota) * 100)}%` }}
+                                ></div>
+                              </div>
                             )}
-                          </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">{key.created}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              key.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {key.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex justify-end space-x-2">
+                              <button 
+                                className="p-1 text-gray-400 hover:text-gray-600"
+                                aria-label={key.status === 'active' ? 'Revoke API key' : 'Delete API key'}
+                                onClick={() => key.status === 'active' ? revokeKey(key.id) : deleteKey(key.id)}
+                              >
+                                {key.status === 'active' ? <RefreshCw size={16} /> : <Trash2 size={16} />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center">
+                          <p className="text-gray-500">No API keys found</p>
+                          <p className="text-sm text-gray-400 mt-1">Create your first API key to get started</p>
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -650,7 +942,7 @@ export default function DashboardPage() {
                     />
                     <YAxis />
                     <Tooltip 
-                      formatter={(value) => [`${value} tokens`, 'Usage']}
+                      formatter={(value, name) => [`${value} ${name === 'tokens' ? 'tokens' : 'calls'}`, name === 'tokens' ? 'Tokens' : 'API Calls']}
                       labelFormatter={(date) => {
                         const d = new Date(date);
                         return `${d.toLocaleDateString()}`;
@@ -674,16 +966,24 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-bold mb-6">Usage by Model</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={modelUsageData}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
+                    <PieChart>
+                      <Pie
+                        data={modelUsageData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {modelUsageData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={['#0088FE', '#000000', '#FFBB28'][index % 3]} />
+                        ))}
+                      </Pie>
                       <Tooltip formatter={(value) => [`${value}%`, 'Usage']} />
-                      <Bar dataKey="value" fill="#000000" />
-                    </BarChart>
+                      <Legend />
+                    </PieChart>
                   </ResponsiveContainer>
                 </div>
               </div>
@@ -691,91 +991,48 @@ export default function DashboardPage() {
               <div className="bg-white rounded-2xl shadow-soft p-6">
                 <h3 className="text-lg font-bold mb-6">Usage by API Key</h3>
                 <div className="space-y-4">
-                  {apiKeys.map((key) => (
-                    <div key={key.id} className="flex items-center">
-                      <div className="w-1/3">
-                        <p className="text-sm font-medium truncate">{key.name}</p>
-                      </div>
-                      <div className="w-2/3 pl-4">
-                        <div className="flex items-center">
-                          <div className="flex-1 bg-gray-200 rounded-full h-2">
-                            <div 
-                              className="bg-black h-2 rounded-full" 
-                              style={{ width: `${Math.floor(Math.random() * 100)}%` }}
-                            ></div>
+                  {apiKeys.length > 0 ? (
+                    apiKeys.map((key) => {
+                      // Calculate actual usage based on Firebase data
+                      const usagePercentage = key.quota > 0 ? Math.min(100, (key.usage / key.quota) * 100) : 0;
+                      const usageTokens = key.usage;
+                      
+                      return (
+                        <div key={key.id} className="flex items-center">
+                          <div className="w-1/3">
+                            <p className="text-sm font-medium truncate">{key.name}</p>
                           </div>
-                          <span className="ml-4 text-sm text-gray-500">
-                            {Math.floor(Math.random() * 10000)} tokens
-                          </span>
+                          <div className="w-2/3 pl-4">
+                            <div className="flex items-center">
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-black h-2 rounded-full" 
+                                  style={{ width: `${usagePercentage}%` }}
+                                ></div>
+                              </div>
+                              <span className="ml-4 text-sm text-gray-500">
+                                {usageTokens.toLocaleString()} tokens
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-6">
+                      <p className="text-gray-500">No API keys yet</p>
+                      <button 
+                        className="mt-2 text-accent hover:underline"
+                        onClick={() => {
+                          setActiveTab('api-keys');
+                          setIsCreatingKey(true);
+                        }}
+                      >
+                        Create your first API key
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
-            </div>
-            
-            {/* Usage Table */}
-            <div className="bg-white rounded-2xl shadow-soft overflow-hidden">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-lg font-bold">Recent API Calls</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date & Time
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        API Key
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Endpoint
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Tokens
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {[...Array(5)].map((_, i) => (
-                      <tr key={i}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {new Date(Date.now() - i * 3600000).toLocaleString()}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-mono text-gray-900">
-                            {apiKeys[i % apiKeys.length].id}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">/api/ai</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {Math.floor(Math.random() * 500) + 100}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Success
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-4 border-t border-gray-200 text-center">
-                <button className="text-sm text-accent hover:underline">
-                  View All API Calls
-                </button>
               </div>
             </div>
           </div>
@@ -850,127 +1107,6 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            
-            {/* Payment Methods */}
-            <div className="bg-white rounded-2xl shadow-soft p-6 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold">Payment Methods</h3>
-                <button className="text-sm text-accent hover:underline">
-                  Add Payment Method
-                </button>
-              </div>
-              <div className="border border-gray-200 rounded-xl p-4 flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="bg-gray-100 rounded-lg p-2 mr-4">
-                    <CreditCard size={24} />
-                  </div>
-                  <div>
-                    <p className="font-medium">Visa ending in 4242</p>
-                    <p className="text-sm text-gray-500">Expires 12/25</p>
-                  </div>
-                </div>
-                <div>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Default
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Billing History */}
-            <div className="bg-white rounded-2xl shadow-soft overflow-hidden">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-lg font-bold">Billing History</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Description
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Amount
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Receipt
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    <tr>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Sep 15, 2023</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Pro Plan Subscription</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">$49.99</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Paid
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <a href="#" className="text-accent hover:underline">
-                          Download
-                        </a>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Aug 15, 2023</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Pro Plan Subscription</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">$49.99</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Paid
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <a href="#" className="text-accent hover:underline">
-                          Download
-                        </a>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Aug 10, 2023</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">Pro Token Pack</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">$39.99</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Paid
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <a href="#" className="text-accent hover:underline">
-                          Download
-                        </a>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </div>
         )}
 
@@ -991,7 +1127,7 @@ export default function DashboardPage() {
                     <input
                       type="text"
                       id="name"
-                      className="form-input"
+                      className="form-input w-full bg-white bg-opacity-10 border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:ring-opacity-20"
                       defaultValue={user?.displayName || ''}
                       placeholder="Your name"
                     />
@@ -1003,128 +1139,15 @@ export default function DashboardPage() {
                     <input
                       type="email"
                       id="email"
-                      className="form-input"
+                      className="form-input w-full bg-white bg-opacity-10 border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:ring-opacity-20"
                       defaultValue={user?.email || ''}
                       disabled
                     />
                   </div>
                 </div>
-                <div>
-                  <label htmlFor="company" className="block text-sm font-medium text-gray-700 mb-1">
-                    Company (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="company"
-                    className="form-input"
-                    defaultValue=""
-                    placeholder="Your company name"
-                  />
-                </div>
                 <div className="flex justify-end">
                   <button className="btn btn-primary">
                     Save Changes
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Password Settings */}
-            <div className="bg-white rounded-2xl shadow-soft p-6 mb-8">
-              <h3 className="text-lg font-bold mb-6">Change Password</h3>
-              <div className="space-y-6">
-                <div>
-                  <label htmlFor="current-password" className="block text-sm font-medium text-gray-700 mb-1">
-                    Current Password
-                  </label>
-                  <input
-                    type="password"
-                    id="current-password"
-                    className="form-input"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-1">
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      id="new-password"
-                      className="form-input"
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
-                      Confirm New Password
-                    </label>
-                    <input
-                      type="password"
-                      id="confirm-password"
-                      className="form-input"
-                      placeholder="••••••••"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button className="btn btn-primary">
-                    Update Password
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* API Settings */}
-            <div className="bg-white rounded-2xl shadow-soft p-6 mb-8">
-              <h3 className="text-lg font-bold mb-6">API Settings</h3>
-              <div className="space-y-6">
-                <div>
-                  <label htmlFor="webhook-url" className="block text-sm font-medium text-gray-700 mb-1">
-                    Webhook URL (Optional)
-                  </label>
-                  <input
-                    type="url"
-                    id="webhook-url"
-                    className="form-input"
-                    placeholder="https://example.com/webhook"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    We'll send API usage events to this URL.
-                  </p>
-                </div>
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300 text-black focus:ring-black"
-                      defaultChecked
-                    />
-                    <span className="ml-2 text-sm text-gray-700">
-                      Enable email notifications for API errors
-                    </span>
-                  </label>
-                </div>
-                <div className="flex justify-end">
-                  <button className="btn btn-primary">
-                    Save Settings
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Danger Zone */}
-            <div className="bg-white rounded-2xl shadow-soft p-6 border border-red-200">
-              <h3 className="text-lg font-bold text-red-600 mb-6">Danger Zone</h3>
-              <div className="space-y-6">
-                <div>
-                  <h4 className="font-medium mb-2">Delete Account</h4>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Once you delete your account, there is no going back. Please be certain.
-                  </p>
-                  <button className="px-4 py-2 bg-white border border-red-500 text-red-500 rounded-xl hover:bg-red-50 transition-colors">
-                    Delete Account
                   </button>
                 </div>
               </div>

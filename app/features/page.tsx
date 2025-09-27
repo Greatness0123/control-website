@@ -4,6 +4,19 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import ParticleBackground from '@/components/ui/ParticleBackground';
 import { motion } from 'framer-motion';
+import { 
+  Monitor, 
+  MessageSquare, 
+  Settings, 
+  Brain, 
+  Zap, 
+  Shield,
+  Check,
+  X,
+  ArrowRight,
+  Download,
+  DollarSign
+} from 'lucide-react';
 
 // Feature card component
 const FeatureCard = ({ 
@@ -14,7 +27,7 @@ const FeatureCard = ({
 }: { 
   title: string; 
   description: string; 
-  icon: string;
+  icon: React.ReactNode;
   delay?: number;
 }) => {
   return (
@@ -26,7 +39,7 @@ const FeatureCard = ({
     >
       <div className="flex items-center mb-4">
         <div className="w-10 h-10 mr-3 flex items-center justify-center bg-white bg-opacity-10 rounded-full">
-          <span className="text-xl">{icon}</span>
+          {icon}
         </div>
         <h3 className="text-xl font-bold">{title}</h3>
       </div>
@@ -50,37 +63,55 @@ const ComparisonTable = () => {
         <tbody>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">Desktop Integration</td>
-            <td className="py-4 px-6 text-center">✓</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
             <td className="py-4 px-6 text-center">Limited</td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">API Access</td>
-            <td className="py-4 px-6 text-center">✓</td>
-            <td className="py-4 px-6 text-center">✓</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">Custom Commands</td>
-            <td className="py-4 px-6 text-center">✓</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
             <td className="py-4 px-6 text-center">Limited</td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">System-wide Shortcuts</td>
-            <td className="py-4 px-6 text-center">✓</td>
-            <td className="py-4 px-6 text-center">×</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
+            <td className="py-4 px-6 text-center">
+              <X className="w-5 h-5 text-red-500 mx-auto" />
+            </td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">Offline Capabilities</td>
             <td className="py-4 px-6 text-center">Partial</td>
-            <td className="py-4 px-6 text-center">×</td>
+            <td className="py-4 px-6 text-center">
+              <X className="w-5 h-5 text-red-500 mx-auto" />
+            </td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">Multi-model Support</td>
-            <td className="py-4 px-6 text-center">✓</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
             <td className="py-4 px-6 text-center">Limited</td>
           </tr>
           <tr className="border-b border-white border-opacity-10">
             <td className="py-4 px-6">Usage-based Pricing</td>
-            <td className="py-4 px-6 text-center">✓</td>
+            <td className="py-4 px-6 text-center">
+              <Check className="w-5 h-5 text-green-500 mx-auto" />
+            </td>
             <td className="py-4 px-6 text-center">Subscription Only</td>
           </tr>
         </tbody>
@@ -158,37 +189,37 @@ export default function FeaturesPage() {
           <FeatureCard 
             title="Desktop Integration" 
             description="Control seamlessly integrates with your desktop environment, providing assistance across all applications."
-            icon="🖥️"
+            icon={<Monitor className="w-6 h-6 text-white" />}
             delay={0.1}
           />
           <FeatureCard 
             title="Natural Language Commands" 
             description="Communicate with your computer using natural language instead of complex command structures."
-            icon="💬"
+            icon={<MessageSquare className="w-6 h-6 text-white" />}
             delay={0.2}
           />
           <FeatureCard 
             title="Custom Workflows" 
             description="Create personalized automation workflows tailored to your specific needs and preferences."
-            icon="⚙️"
+            icon={<Settings className="w-6 h-6 text-white" />}
             delay={0.3}
           />
           <FeatureCard 
             title="Multi-model Support" 
             description="Access various AI models through a unified interface, selecting the best tool for each task."
-            icon="🧠"
+            icon={<Brain className="w-6 h-6 text-white" />}
             delay={0.4}
           />
           <FeatureCard 
             title="API Access" 
             description="Integrate Control's capabilities into your own applications with our developer-friendly API."
-            icon="🔌"
+            icon={<Zap className="w-6 h-6 text-white" />}
             delay={0.5}
           />
           <FeatureCard 
             title="Privacy Focused" 
             description="Your data stays on your device whenever possible, with transparent handling of cloud processing."
-            icon="🔒"
+            icon={<Shield className="w-6 h-6 text-white" />}
             delay={0.6}
           />
         </div>

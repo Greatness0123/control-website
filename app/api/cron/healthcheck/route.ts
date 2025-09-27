@@ -1,139 +1,166 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
-import redis, { REDIS_KEYS, REDIS_TTL, OpenRouterStatus } from '@/lib/redis/client';
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/firebase/admin';
+import { serverTimestamp } from 'firebase-admin/firestore';
 
-/**
- * GET handler for the /api/cron/healthcheck endpoint
- */
-export async function GET(req: NextRequest): Promise<NextResponse> {
+// Define interfaces for OpenRouter key
+interface OpenRouterKey {
+  id: string;
+  env_name: string;
+  notes?: string;
+  status: 'healthy' | 'rate_limited' | 'unhealthy';
+  concurrent: number;
+  last_checked?: any;
+}
+
+// Define settings interface
+interface HealthCheckSettings {
+  check_interval: number;
+  unhealthy_threshold: number;
+  rate_limit_cooldown: number;
+  routing_policy: string;
+}
+
+export async function GET() {
   try {
-    // Check for a secret key to protect the endpoint
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return NextResponse.json(
-        { error: 'Unauthorized: Invalid or missing credentials' },
-        { status: 401 }
-      );
-    }
-    
-    // Get all OpenRouter keys from Firestore
-    const keysSnapshot = await adminDb.collection('openrouter_keys').get();
-    const keys = keysSnapshot.docs.map(doc => ({
+    // Get all OpenRouter keys
+    const keysSnapshot = await db.collection('openrouter_keys').get();
+    const keys: OpenRouterKey[] = keysSnapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data(),
+      ...doc.data() as OpenRouterKey
     }));
-    
-    // Check the health of each key
-    const results = await Promise.all(
-      keys.map(async (key) => {
-        try {
-          // Make a simple request to OpenRouter to check the key's health
-          const envKey = process.env[`OPENROUTER_KEY_${key.id}`] || process.env.OPENROUTER_KEY_1;
+
+    // Get health check settings
+    const settingsDoc = await db.collection('settings').doc('healthcheck').get();
+    const settings: HealthCheckSettings = settingsDoc.exists 
+      ? settingsDoc.data() as HealthCheckSettings
+      : {
+          check_interval: 5, // minutes
+          unhealthy_threshold: 60, // seconds
+          rate_limit_cooldown: 300, // seconds
+          routing_policy: 'round_robin'
+        };
+
+    // Check each key's health
+    const results = await Promise.all(keys.map(async (key) => {
+      try {
+        // Skip keys that are rate limited and haven't cooled down yet
+        if (key.status === 'rate_limited' && key.last_checked) {
+          const lastChecked = key.last_checked.toDate();
+          const cooldownEnds = new Date(lastChecked.getTime() + settings.rate_limit_cooldown * 1000);
           
-          if (!envKey) {
-            throw new Error('No OpenRouter key available');
-          }
-          
-          const response = await fetch('https://openrouter.ai/api/v1/models', {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${envKey}`,
-              'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-              'X-Title': 'Control Desktop',
-            },
-            timeout: 5000, // 5 seconds timeout
-          });
-          
-          // Check the response
-          if (!response.ok) {
-            // If rate limited, mark as rate limited
-            if (response.status === 429) {
-              await redis.set(
-                `${REDIS_KEYS.OPENROUTER_STATUS}${key.id}`,
-                OpenRouterStatus.RATE_LIMITED,
-                { ex: REDIS_TTL.RATE_LIMITED }
-              );
-              
-              await adminDb.collection('openrouter_keys').doc(key.id).update({
-                status: OpenRouterStatus.RATE_LIMITED,
-                last_checked: new Date(),
-              });
-              
-              return {
-                id: key.id,
-                status: OpenRouterStatus.RATE_LIMITED,
-                error: 'Rate limited',
-              };
-            }
-            
-            // Otherwise, mark as unhealthy
-            await redis.set(
-              `${REDIS_KEYS.OPENROUTER_STATUS}${key.id}`,
-              OpenRouterStatus.UNHEALTHY,
-              { ex: REDIS_TTL.UNHEALTHY }
-            );
-            
-            await adminDb.collection('openrouter_keys').doc(key.id).update({
-              status: OpenRouterStatus.UNHEALTHY,
-              last_checked: new Date(),
-            });
-            
+          if (cooldownEnds > new Date()) {
             return {
               id: key.id,
-              status: OpenRouterStatus.UNHEALTHY,
-              error: `HTTP ${response.status}: ${response.statusText}`,
+              env_name: key.env_name,
+              status: 'rate_limited',
+              message: 'Skipped check due to rate limit cooldown'
+            };
+          }
+        }
+
+        // Get the actual API key from environment variables
+        const apiKey = process.env[key.env_name];
+        if (!apiKey) {
+          await updateKeyStatus(key.id, 'unhealthy');
+          return {
+            id: key.id,
+            env_name: key.env_name,
+            status: 'unhealthy',
+            message: 'API key not found in environment variables'
+          };
+        }
+
+        // Check the key's health with OpenRouter
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), settings.unhealthy_threshold * 1000);
+        
+        try {
+          const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.status === 200) {
+            await updateKeyStatus(key.id, 'healthy');
+            return {
+              id: key.id,
+              env_name: key.env_name,
+              status: 'healthy',
+              message: 'Key is healthy'
+            };
+          } else if (response.status === 429) {
+            await updateKeyStatus(key.id, 'rate_limited');
+            return {
+              id: key.id,
+              env_name: key.env_name,
+              status: 'rate_limited',
+              message: 'Key is rate limited'
+            };
+          } else {
+            await updateKeyStatus(key.id, 'unhealthy');
+            return {
+              id: key.id,
+              env_name: key.env_name,
+              status: 'unhealthy',
+              message: `Unexpected status code: ${response.status}`
+            };
+          }
+        } catch (error) {
+          clearTimeout(timeoutId);
+          
+          if (error.name === 'AbortError') {
+            await updateKeyStatus(key.id, 'unhealthy');
+            return {
+              id: key.id,
+              env_name: key.env_name,
+              status: 'unhealthy',
+              message: 'Request timed out'
             };
           }
           
-          // Mark as healthy
-          await redis.set(
-            `${REDIS_KEYS.OPENROUTER_STATUS}${key.id}`,
-            OpenRouterStatus.HEALTHY
-          );
-          
-          await adminDb.collection('openrouter_keys').doc(key.id).update({
-            status: OpenRouterStatus.HEALTHY,
-            last_checked: new Date(),
-          });
-          
+          await updateKeyStatus(key.id, 'unhealthy');
           return {
             id: key.id,
-            status: OpenRouterStatus.HEALTHY,
-          };
-        } catch (error: any) {
-          // Mark as unhealthy
-          await redis.set(
-            `${REDIS_KEYS.OPENROUTER_STATUS}${key.id}`,
-            OpenRouterStatus.UNHEALTHY,
-            { ex: REDIS_TTL.UNHEALTHY }
-          );
-          
-          await adminDb.collection('openrouter_keys').doc(key.id).update({
-            status: OpenRouterStatus.UNHEALTHY,
-            last_checked: new Date(),
-          });
-          
-          return {
-            id: key.id,
-            status: OpenRouterStatus.UNHEALTHY,
-            error: error.message || 'Unknown error',
+            env_name: key.env_name,
+            status: 'unhealthy',
+            message: error.message
           };
         }
-      })
-    );
-    
-    // Return the results
+      } catch (error) {
+        console.error(`Error checking key ${key.id}:`, error);
+        return {
+          id: key.id,
+          env_name: key.env_name,
+          status: 'unhealthy',
+          message: 'Internal error during health check'
+        };
+      }
+    }));
+
     return NextResponse.json({
+      success: true,
       timestamp: new Date().toISOString(),
-      keys_checked: results.length,
-      results,
+      results
     });
-  } catch (error: any) {
-    console.error('Error in healthcheck:', error);
-    
-    return NextResponse.json(
-      { error: 'Healthcheck failed', message: error.message || 'Unknown error' },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error('Error in health check:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Internal server error' 
+    }, { status: 500 });
   }
+}
+
+// Helper function to update key status
+async function updateKeyStatus(keyId: string, status: 'healthy' | 'rate_limited' | 'unhealthy') {
+  await db.collection('openrouter_keys').doc(keyId).update({
+    status,
+    last_checked: serverTimestamp()
+  });
 }

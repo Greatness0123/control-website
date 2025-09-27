@@ -11,6 +11,7 @@
     "seed": "node scripts/seedFirestore.js"
   },
   "dependencies": {
+    "@firebase/firestore": "^4.9.2",
     "@upstash/redis": "^1.25.1",
     "dotenv": "^17.2.2",
     "firebase": "^10.7.2",

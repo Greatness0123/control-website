@@ -10,7 +10,8 @@ const plans = [
   {
     name: 'Free',
     description: 'Basic access for personal projects and testing',
-    price: 0,
+    monthlyPrice: 0,
+    annualPrice: 0,
     features: [
       '10,000 tokens per month',
       '10 requests per minute',
@@ -30,7 +31,8 @@ const plans = [
   {
     name: 'Professional',
     description: 'Enhanced access for businesses and power users',
-    price: 49.99,
+    monthlyPrice: 49.99,
+    annualPrice: 479.90, // 20% discount: 49.99 * 12 * 0.8
     features: [
       '1,000,000 tokens per month',
       '60 requests per minute',
@@ -72,14 +74,16 @@ const tokenPacks = [
   {
     name: 'Starter Pack',
     tokens: '100,000',
-    price: 9.99,
+    monthlyPrice: 9.99,
+    annualPrice: 95.90, // 20% discount
     cta: 'Buy Now',
     ctaLink: '/dashboard/billing/buy?pack=starter',
   },
   {
     name: 'Pro Pack',
     tokens: '500,000',
-    price: 39.99,
+    monthlyPrice: 39.99,
+    annualPrice: 383.90, // 20% discount
     cta: 'Buy Now',
     ctaLink: '/dashboard/billing/buy?pack=pro',
     popular: true,
@@ -87,7 +91,8 @@ const tokenPacks = [
   {
     name: 'Enterprise Pack',
     tokens: '2,000,000',
-    price: 149.99,
+    monthlyPrice: 149.99,
+    annualPrice: 1439.90, // 20% discount
     cta: 'Buy Now',
     ctaLink: '/dashboard/billing/buy?pack=enterprise',
   },
@@ -95,6 +100,19 @@ const tokenPacks = [
 
 export default function PricingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+
+  // Calculate the display price based on billing cycle
+  const getDisplayPrice = (plan: typeof plans[0]) => {
+    if (plan.name === 'Free' || plan.name === 'Pay As You Go') {
+      return plan.monthlyPrice;
+    }
+    return billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice;
+  };
+
+  // Calculate the display price for token packs
+  const getTokenPackPrice = (pack: typeof tokenPacks[0]) => {
+    return billingCycle === 'monthly' ? pack.monthlyPrice : pack.annualPrice;
+  };
 
   return (
     <div className="min-h-screen pt-24 pb-16">
@@ -173,7 +191,7 @@ export default function PricingPage() {
                 <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
                 <p className="text-gray-600 mb-6">{plan.description}</p>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold">${plan.price}</span>
+                  <span className="text-4xl font-bold">${getDisplayPrice(plan)}</span>
                   {billingCycle === 'monthly' ? (
                     <span className="text-gray-600">/month</span>
                   ) : (
@@ -181,6 +199,11 @@ export default function PricingPage() {
                   )}
                   {plan.priceDetail && (
                     <div className="text-sm text-gray-600 mt-1">{plan.priceDetail}</div>
+                  )}
+                  {billingCycle === 'annual' && plan.name === 'Professional' && (
+                    <div className="text-sm text-green-600 mt-1">
+                      Save $120/year (20% off)
+                    </div>
                   )}
                 </div>
                 <Link
@@ -265,10 +288,15 @@ export default function PricingPage() {
                 <h3 className="text-2xl font-bold mb-2">{pack.name}</h3>
                 <div className="text-gray-600 mb-6">{pack.tokens} tokens</div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold">${pack.price}</span>
+                  <span className="text-4xl font-bold">${getTokenPackPrice(pack)}</span>
                   <div className="text-sm text-gray-600 mt-1">
-                    ${(pack.price / parseInt(pack.tokens.replace(/,/g, '')) * 1000).toFixed(3)} per 1,000 tokens
+                    ${(getTokenPackPrice(pack) / parseInt(pack.tokens.replace(/,/g, '')) * 1000).toFixed(3)} per 1,000 tokens
                   </div>
+                  {billingCycle === 'annual' && (
+                    <div className="text-sm text-green-600 mt-1">
+                      Save 20% with annual billing
+                    </div>
+                  )}
                 </div>
                 <Link
                   href={pack.ctaLink}

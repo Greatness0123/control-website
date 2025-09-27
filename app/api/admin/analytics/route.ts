@@ -1,119 +1,255 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminMiddleware } from '@/lib/auth/utils';
-import { adminDb } from '@/lib/firebase/admin';
+import { db } from '@/lib/firebase/admin';
+import { isAdmin } from '@/lib/auth/admin';
 
-/**
- * GET handler for the /api/admin/analytics endpoint
- * Returns usage analytics data
- */
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
+// Define interfaces for the log data
+interface UsageLog {
+  id: string;
+  timestamp: any;
+  api_key?: string;
+  endpoint?: string;
+  tokens_used?: number;
+  success?: boolean;
+  error_code?: string;
+  openrouter_key_used?: string | null;
+  user_id?: string;
+}
+
+interface ApiKey {
+  id: string;
+  name: string;
+  owner: string;
+  tier: string;
+  created_at: any;
+  last_used?: any;
+  usage: number;
+  quota: number;
+  status: string;
+}
+
+interface UserData {
+  id: string;
+  email: string;
+  displayName?: string;
+  plan?: string;
+  token_balance?: number;
+  created_at?: any;
+  last_login?: any;
+}
+
+export async function GET(request: NextRequest) {
   try {
+    // Check if the user is an admin
+    const adminCheck = await isAdmin(request);
+    if (!adminCheck.isAdmin) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
     // Get query parameters
-    const url = new URL(req.url);
-    const period = url.searchParams.get('period') || 'day';
-    const limit = parseInt(url.searchParams.get('limit') || '30');
-    
-    // Calculate the start date based on the period
-    const now = new Date();
-    let startDate: Date;
-    
-    switch (period) {
-      case 'hour':
-        startDate = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
+    const { searchParams } = new URL(request.url);
+    const period = searchParams.get('period') || '24h';
+    const type = searchParams.get('type') || 'usage';
+
+    // Get analytics data based on the type
+    let data;
+    switch (type) {
+      case 'usage':
+        data = await getUsageAnalytics(period);
         break;
-      case 'day':
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
+      case 'users':
+        data = await getUserAnalytics();
         break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days ago
-        break;
-      case 'month':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+      case 'errors':
+        data = await getErrorAnalytics(period);
         break;
       default:
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Default to 24 hours
+        return NextResponse.json({ error: 'Invalid analytics type' }, { status: 400 });
     }
-    
-    // Get usage logs for the period
-    const logsSnapshot = await adminDb.collection('usage_logs')
-      .where('timestamp', '>=', startDate)
-      .orderBy('timestamp', 'desc')
-      .limit(limit)
-      .get();
-    
-    const logs = logsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      timestamp: doc.data().timestamp.toDate().toISOString(),
-    }));
-    
-    // Calculate total tokens used
-    const totalTokens = logs.reduce((sum, log) => sum + (log.tokens_used || 0), 0);
-    
-    // Calculate success rate
-    const successCount = logs.filter(log => log.success).length;
-    const successRate = logs.length > 0 ? (successCount / logs.length) * 100 : 0;
-    
-    // Get top API keys by usage
-    const apiKeyUsage: { [key: string]: number } = {};
-    logs.forEach(log => {
-      const key = log.api_key;
-      apiKeyUsage[key] = (apiKeyUsage[key] || 0) + (log.tokens_used || 0);
-    });
-    
-    const topApiKeys = Object.entries(apiKeyUsage)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([key, tokens]) => ({ key, tokens }));
-    
-    // Get top errors
-    const errors: { [code: string]: number } = {};
-    logs.filter(log => !log.success).forEach(log => {
-      const code = log.error_code || 'unknown';
-      errors[code] = (errors[code] || 0) + 1;
-    });
-    
-    const topErrors = Object.entries(errors)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([code, count]) => ({ code, count }));
-    
-    // Get OpenRouter key usage
-    const openRouterKeyUsage: { [key: string]: number } = {};
-    logs.forEach(log => {
-      if (log.openrouter_key_used) {
-        const key = log.openrouter_key_used;
-        openRouterKeyUsage[key] = (openRouterKeyUsage[key] || 0) + (log.tokens_used || 0);
-      }
-    });
-    
-    const openRouterKeys = Object.entries(openRouterKeyUsage)
-      .sort((a, b) => b[1] - a[1])
-      .map(([key, tokens]) => ({ key, tokens }));
-    
-    // Return the analytics data
-    return NextResponse.json({
-      period,
-      total_requests: logs.length,
-      total_tokens: totalTokens,
-      success_rate: successRate,
-      top_api_keys: topApiKeys,
-      top_errors: topErrors,
-      openrouter_keys: openRouterKeys,
-      recent_logs: logs.slice(0, 10), // Return only the 10 most recent logs
-    });
-  } catch (error: any) {
+
+    return NextResponse.json({ data });
+  } catch (error) {
     console.error('Error getting analytics:', error);
-    
-    return NextResponse.json(
-      { error: 'Failed to get analytics', message: error.message || 'Unknown error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+// Get usage analytics
+async function getUsageAnalytics(period: string) {
+  // Calculate the start time based on the period
+  const startTime = getStartTime(period);
+
+  // Get usage logs
+  const logsSnapshot = await db.collection('usage_logs')
+    .where('timestamp', '>=', startTime)
+    .orderBy('timestamp', 'desc')
+    .get();
+
+  const logs: UsageLog[] = logsSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+    timestamp: doc.data().timestamp?.toDate()
+  }));
+
+  // Calculate total tokens used
+  const totalTokens = logs.reduce((sum, log) => sum + (log.tokens_used || 0), 0);
+
+  // Calculate success rate
+  const successCount = logs.filter(log => log.success).length;
+  const successRate = logs.length > 0 ? (successCount / logs.length) * 100 : 0;
+
+  // Group usage by API key
+  const usageByKey: Record<string, number> = {};
+  logs.forEach(log => {
+    if (log.api_key) {
+      usageByKey[log.api_key] = (usageByKey[log.api_key] || 0) + (log.tokens_used || 0);
+    }
+  });
+
+  // Get top API keys by usage
+  const topApiKeys = Object.entries(usageByKey)
+    .map(([key, tokens]) => ({ key, tokens }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .slice(0, 5);
+
+  // Group errors by type
+  const errorTypes: Record<string, number> = {};
+  logs.forEach(log => {
+    if (!log.success && log.error_code) {
+      errorTypes[log.error_code] = (errorTypes[log.error_code] || 0) + 1;
+    }
+  });
+
+  // Group usage by OpenRouter key
+  const usageByOpenRouterKey: Record<string, number> = {};
+  logs.forEach(log => {
+    if (log.openrouter_key_used) {
+      usageByOpenRouterKey[log.openrouter_key_used] = 
+        (usageByOpenRouterKey[log.openrouter_key_used] || 0) + (log.tokens_used || 0);
+    }
+  });
+
+  return {
+    totalRequests: logs.length,
+    totalTokens,
+    successRate,
+    topApiKeys,
+    errorTypes,
+    usageByOpenRouterKey,
+    recentLogs: logs.slice(0, 10)
+  };
+}
+
+// Get user analytics
+async function getUserAnalytics() {
+  // Get all users
+  const usersSnapshot = await db.collection('users').get();
+  const users: UserData[] = usersSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data() as UserData
+  }));
+
+  // Get all API keys
+  const keysSnapshot = await db.collection('api_keys').get();
+  const keys: ApiKey[] = keysSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data() as ApiKey
+  }));
+
+  // Count users by plan
+  const usersByPlan: Record<string, number> = {};
+  users.forEach(user => {
+    const plan = user.plan || 'free';
+    usersByPlan[plan] = (usersByPlan[plan] || 0) + 1;
+  });
+
+  // Count active API keys
+  const activeKeys = keys.filter(key => key.status === 'active').length;
+
+  // Get new users in the last 30 days
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  const newUsers = users.filter(user => 
+    user.created_at && user.created_at.toDate() >= thirtyDaysAgo
+  ).length;
+
+  return {
+    totalUsers: users.length,
+    usersByPlan,
+    activeKeys,
+    newUsers,
+    recentUsers: users
+      .filter(user => user.created_at)
+      .sort((a, b) => b.created_at.toDate() - a.created_at.toDate())
+      .slice(0, 10)
+  };
+}
+
+// Get error analytics
+async function getErrorAnalytics(period: string) {
+  // Calculate the start time based on the period
+  const startTime = getStartTime(period);
+
+  // Get error logs
+  const logsSnapshot = await db.collection('usage_logs')
+    .where('timestamp', '>=', startTime)
+    .where('success', '==', false)
+    .orderBy('timestamp', 'desc')
+    .get();
+
+  const errorLogs: UsageLog[] = logsSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data() as UsageLog,
+    timestamp: doc.data().timestamp?.toDate()
+  }));
+
+  // Group errors by type
+  const errorsByType: Record<string, number> = {};
+  errorLogs.forEach(log => {
+    if (log.error_code) {
+      errorsByType[log.error_code] = (errorsByType[log.error_code] || 0) + 1;
+    }
+  });
+
+  // Group errors by API key
+  const errorsByKey: Record<string, number> = {};
+  errorLogs.forEach(log => {
+    if (log.api_key) {
+      errorsByKey[log.api_key] = (errorsByKey[log.api_key] || 0) + 1;
+    }
+  });
+
+  return {
+    totalErrors: errorLogs.length,
+    errorsByType,
+    errorsByKey,
+    recentErrors: errorLogs.slice(0, 10)
+  };
+}
+
+// Helper function to calculate start time based on period
+function getStartTime(period: string): Date {
+  const now = new Date();
+  
+  switch (period) {
+    case '1h':
+      now.setHours(now.getHours() - 1);
+      break;
+    case '24h':
+      now.setDate(now.getDate() - 1);
+      break;
+    case '7d':
+      now.setDate(now.getDate() - 7);
+      break;
+    case '30d':
+      now.setDate(now.getDate() - 30);
+      break;
+    case '90d':
+      now.setDate(now.getDate() - 90);
+      break;
+    default:
+      now.setDate(now.getDate() - 1); // Default to 24h
+  }
+  
+  return now;
 }

@@ -43,7 +43,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
           >
-            The AI-powered desktop assistant that lets you control your computer and browser using natural language.
+            The AI-powered desktop assistant that lets you control your computer and browser using natural language. <span className="text-accent font-semibold">Command is control.</span>
           </motion.p>
           <motion.div 
             className="flex flex-col sm:flex-row gap-4 justify-center"
