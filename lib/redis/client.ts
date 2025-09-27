@@ -3,6 +3,7 @@ import { Redis } from '@upstash/redis';
 // Initialize Redis client
 const redis = new Redis({
   url: process.env.REDIS_URL || '',
+  token: process.env.REDIS_TOKEN || '',
   retry: {
     retries: 3,
     backoff: (retryCount) => Math.min(Math.exp(retryCount) * 50, 1000),

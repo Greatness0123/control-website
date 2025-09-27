@@ -408,7 +408,7 @@ export default function ApiDocsPage() {
           </div>
           
           {/* SDKs */}
-          <div className="bg-white rounded-2xl shadow-soft p-8 mb-8">
+          {/* <div className="bg-white rounded-2xl shadow-soft p-8 mb-8">
             <div className="flex items-start mb-4">
               <div className="bg-black rounded-full p-3 mr-4">
                 <Code className="text-white" size={24} />
@@ -439,7 +439,7 @@ export default function ApiDocsPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </div> */}
         </section>
         
         {/* Support */}

@@ -201,9 +201,9 @@ export default function Home() {
               <div className="flex items-center justify-center w-12 h-12 rounded-full bg-black text-white font-bold text-xl mb-6">
                 1
               </div>
-              <h3 className="text-xl font-bold mb-4">Speak or Type</h3>
+              <h3 className="text-xl font-bold mb-4">Type</h3>
               <p className="text-gray-700">
-                Simply tell Control what you want to do using natural language, either by speaking or typing.
+                Simply tell Control what you want to do using natural language, basically just command it.
               </p>
             </motion.div>
             
@@ -264,7 +264,7 @@ export default function Home() {
               transition={{ duration: 0.5 }}
             >
               <div className="flex items-center mb-6">
-                <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div>
+                {/* <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div> */}
                 <div>
                   <h4 className="font-bold">Sarah Johnson</h4>
                   <p className="text-gray-600">Software Developer</p>
@@ -284,7 +284,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.1 }}
             >
               <div className="flex items-center mb-6">
-                <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div>
+                {/* <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div> */}
                 <div>
                   <h4 className="font-bold">Michael Chen</h4>
                   <p className="text-gray-600">Product Manager</p>
@@ -304,7 +304,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <div className="flex items-center mb-6">
-                <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div>
+                {/* <div className="w-12 h-12 rounded-full bg-gray-300 mr-4"></div> */}
                 <div>
                   <h4 className="font-bold">Emily Rodriguez</h4>
                   <p className="text-gray-600">Content Creator</p>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase/admin';
-import { serverTimestamp } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // Define interfaces for OpenRouter key
 interface OpenRouterKey {
@@ -111,7 +111,7 @@ export async function GET() {
               message: `Unexpected status code: ${response.status}`
             };
           }
-        } catch (error) {
+        } catch (error: any) {
           clearTimeout(timeoutId);
           
           if (error.name === 'AbortError') {
@@ -132,7 +132,7 @@ export async function GET() {
             message: error.message
           };
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Error checking key ${key.id}:`, error);
         return {
           id: key.id,
@@ -148,7 +148,7 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       results
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in health check:', error);
     return NextResponse.json({ 
       success: false, 
@@ -161,6 +161,6 @@ export async function GET() {
 async function updateKeyStatus(keyId: string, status: 'healthy' | 'rate_limited' | 'unhealthy') {
   await db.collection('openrouter_keys').doc(keyId).update({
     status,
-    last_checked: serverTimestamp()
+    last_checked: FieldValue.serverTimestamp()
   });
 }

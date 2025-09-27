@@ -58,12 +58,12 @@ const DownloadCard = ({
           />
           Download
         </a>
-        <a 
+        {/* <a 
           href={`${downloadUrl}.sig`} 
           className="bg-transparent border border-white px-4 py-2 rounded-lg font-medium hover:bg-white hover:bg-opacity-10 transition text-center text-sm"
         >
           Signature
-        </a>
+        </a> */}
       </div>
     </motion.div>
   );
@@ -172,14 +172,14 @@ export default function DownloadsPage() {
             >
               Desktop App
             </button>
-            <button 
+            {/* <button 
               className={`px-6 py-2 rounded-full transition ${
                 activeTab === 'sdk' ? 'bg-white text-black' : 'hover:bg-white hover:bg-opacity-10'
               }`}
               onClick={() => setActiveTab('sdk')}
             >
               SDK Packages
-            </button>
+            </button> */}
             <button 
               className={`px-6 py-2 rounded-full transition ${
                 activeTab === 'history' ? 'bg-white text-black' : 'hover:bg-white hover:bg-opacity-10'
@@ -194,7 +194,7 @@ export default function DownloadsPage() {
         {/* Desktop App Downloads */}
         {activeTab === 'desktop' && (
           <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
+            <div className="grid grid-cols-1 md:grid-cols-2  gap-8 mb-16 justify-items-center">
               <DownloadCard 
                 platform="Windows" 
                 version="2.0.1" 
@@ -211,19 +211,19 @@ export default function DownloadsPage() {
                 downloadUrl="/downloads/control-ai-2.0.1-macos.dmg"
                 delay={0.2}
               />
-              <DownloadCard 
+              {/* <DownloadCard 
                 platform="Linux" 
                 version="2.0.1" 
                 size="78 MB"
                 logoSrc="/images/logos/linux-logo.png"
                 downloadUrl="/downloads/control-ai-2.0.1-linux-x64.AppImage"
                 delay={0.3}
-              />
+              /> */}
             </div>
             
             <div className="bg-white bg-opacity-5 backdrop-blur-sm border border-white border-opacity-10 rounded-lg p-6 mb-8">
               <h3 className="text-xl font-bold mb-4">System Requirements</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-items-center">
                 <div>
                   <h4 className="font-bold mb-2">Windows</h4>
                   <ul className="text-sm text-gray-300 space-y-1">
@@ -242,7 +242,7 @@ export default function DownloadsPage() {
                     <li>Internet connection</li>
                   </ul>
                 </div>
-                <div>
+                {/* <div>
                   <h4 className="font-bold mb-2">Linux</h4>
                   <ul className="text-sm text-gray-300 space-y-1">
                     <li>Ubuntu 20.04 or equivalent</li>
@@ -250,13 +250,13 @@ export default function DownloadsPage() {
                     <li>200 MB disk space</li>
                     <li>Internet connection</li>
                   </ul>
-                </div>
+                </div> */}
               </div>
             </div>
             
             <div className="bg-white bg-opacity-5 backdrop-blur-sm border border-white border-opacity-10 rounded-lg p-6">
               <h3 className="text-xl font-bold mb-4">Installation Instructions</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-items-center">
                 <div>
                   <h4 className="font-bold mb-2">Windows</h4>
                   <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
@@ -275,7 +275,7 @@ export default function DownloadsPage() {
                     <li>Launch Control AI from Applications</li>
                   </ol>
                 </div>
-                <div>
+                {/* <div>
                   <h4 className="font-bold mb-2">Linux</h4>
                   <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
                     <li>Download the .AppImage file</li>
@@ -283,7 +283,7 @@ export default function DownloadsPage() {
                     <li>Run the AppImage</li>
                     <li>Optional: Create desktop shortcut</li>
                   </ol>
-                </div>
+                </div> */}
               </div>
             </div>
           </div>
@@ -368,7 +368,7 @@ export default function DownloadsPage() {
                 "Improved API with new endpoints and better documentation"
               ]}
             />
-            <VersionHistoryItem 
+            {/* <VersionHistoryItem 
               version="1.5.2" 
               date="August 15, 2025"
               highlights={[
@@ -377,7 +377,7 @@ export default function DownloadsPage() {
                 "Fixed Linux AppImage permissions issue",
                 "Updated dependencies"
               ]}
-            />
+            /> */}
             <VersionHistoryItem 
               version="1.5.0" 
               date="July 28, 2025"
@@ -389,7 +389,7 @@ export default function DownloadsPage() {
                 "New keyboard shortcuts for power users"
               ]}
             />
-            <VersionHistoryItem 
+            {/* <VersionHistoryItem 
               version="1.0.0" 
               date="June 1, 2025"
               highlights={[
@@ -399,7 +399,7 @@ export default function DownloadsPage() {
                 "Simple API for developers",
                 "Windows, macOS, and Linux support"
               ]}
-            />
+            /> */}
           </div>
         )}
       </section>

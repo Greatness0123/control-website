@@ -142,7 +142,7 @@ export default function ContactPage() {
       {/* Contact Section */}
       <div className="container mx-auto px-4 mb-20">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Contact Information */}
+          {/* Contact Information
           <motion.div 
             className="lg:col-span-1"
             initial={{ opacity: 0, x: -20 }}
@@ -214,7 +214,7 @@ export default function ContactPage() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </motion.div> */}
 
           {/* Contact Form */}
           <motion.div 

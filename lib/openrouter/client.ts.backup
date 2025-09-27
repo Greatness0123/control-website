@@ -127,7 +127,8 @@ export async function sendOpenRouterRequest(
     const envKey = process.env[`OPENROUTER_KEY_${apiKey}`] || process.env.OPENROUTER_KEY_1;
     
     if (!envKey) {
-       // Create abort controller for timeout\n       const controller = new AbortController();\n       const timeoutId = setTimeout(() => controller.abort(), 30000);
+      throw new Error('No OpenRouter key available');
+    }
 
     // Send the request to OpenRouter
     const response = await fetch(OPENROUTER_API_URL, {
@@ -152,9 +153,8 @@ export async function sendOpenRouterRequest(
         stream: options.stream || false,
         stop: options.stop || [],
       }),
-      signal: controller.signal,
+      timeout: 30000, // 30 seconds timeout
     });
-       clearTimeout(timeoutId);
 
     // Check for errors
     if (!response.ok) {

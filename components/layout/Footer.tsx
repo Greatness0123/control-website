@@ -6,7 +6,7 @@ export default function Footer() {
   return (
     <footer className="bg-black text-white py-16">
       <div className="container mx-auto px-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Logo and Description */}
           <div className="lg:col-span-2">
             <Link href="/" className="flex items-center mb-4">
@@ -22,7 +22,7 @@ export default function Footer() {
             <p className="text-gray-400 mb-6 max-w-md">
               Control is an AI-powered desktop assistant that lets you control your computer and browser using natural language.
             </p>
-            <div className="flex space-x-4">
+            {/* <div className="flex space-x-4">
               <a href="https://github.com/control-ai" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
                 <Github size={20} />
                 <span className="sr-only">GitHub</span>
@@ -41,7 +41,7 @@ export default function Footer() {
                 <Youtube size={20} />
                 <span className="sr-only">YouTube</span>
               </a>
-            </div>
+            </div> */}
           </div>
 
           {/* Product Links */}
@@ -69,15 +69,15 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/command-explorer" className="text-gray-400 hover:text-white transition-colors">
+                {/* <Link href="/command-explorer" className="text-gray-400 hover:text-white transition-colors">
                   Command Explorer
-                </Link>
+                </Link> */}
               </li>
             </ul>
           </div>
 
           {/* Resources Links */}
-          <div>
+          {/* <div>
             <h3 className="font-bold text-lg mb-4">Resources</h3>
             <ul className="space-y-3">
               <li>
@@ -106,36 +106,36 @@ export default function Footer() {
                 </Link>
               </li>
             </ul>
-          </div>
+          </div> */}
 
           {/* Company Links */}
           <div>
             <h3 className="font-bold text-lg mb-4">Company</h3>
             <ul className="space-y-3">
               <li>
-                <Link href="/about" className="text-gray-400 hover:text-white transition-colors">
+                {/* <Link href="/about" className="text-gray-400 hover:text-white transition-colors">
                   About Us
-                </Link>
+                </Link> */}
               </li>
               <li>
                 <Link href="/contact" className="text-gray-400 hover:text-white transition-colors">
-                  Contact
+                  Contact us
                 </Link>
               </li>
               <li>
-                <Link href="/careers" className="text-gray-400 hover:text-white transition-colors">
+                {/* <Link href="/careers" className="text-gray-400 hover:text-white transition-colors">
                   Careers
-                </Link>
+                </Link> */}
               </li>
               <li>
-                <Link href="/legal/privacy" className="text-gray-400 hover:text-white transition-colors">
+                {/* <Link href="/legal/privacy" className="text-gray-400 hover:text-white transition-colors">
                   Privacy Policy
-                </Link>
+                </Link> */}
               </li>
               <li>
-                <Link href="/legal/terms" className="text-gray-400 hover:text-white transition-colors">
+                {/* <Link href="/legal/terms" className="text-gray-400 hover:text-white transition-colors">
                   Terms of Service
-                </Link>
+                </Link> */}
               </li>
             </ul>
           </div>
@@ -175,12 +175,12 @@ export default function Footer() {
             <p className="text-gray-400 text-sm">
               &copy; {new Date().getFullYear()} Control AI. All rights reserved.
             </p>
-            <div className="flex items-center mt-4 sm:mt-0">
+            {/* <div className="flex items-center mt-4 sm:mt-0">
               <a href="mailto:support@control.ai" className="text-gray-400 hover:text-white transition-colors flex items-center">
                 <Mail size={16} className="mr-2" />
                 <span>support@control.ai</span>
               </a>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>

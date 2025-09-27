@@ -28,7 +28,7 @@ interface FlutterwavePaymentRequest {
 }
 
 // Interface for Flutterwave payment response
-interface FlutterwavePaymentResponse {
+export interface FlutterwavePaymentResponse {
   status: string;
   message: string;
   data: {

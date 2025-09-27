@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { adminDb } from '../firebase/admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import redis, { REDIS_KEYS } from '../redis/client';
 
 /**
@@ -145,7 +146,7 @@ export async function hasExceededQuota(apiKey: string): Promise<boolean> {
 export async function updateApiKeyUsage(apiKey: string, tokensUsed: number): Promise<void> {
   // Update the API key usage in Firestore
   await adminDb.collection('api_keys').doc(apiKey).update({
-    usage_this_month: adminDb.FieldValue.increment(tokensUsed),
+    usage_this_month: FieldValue.increment(tokensUsed),
   });
   
   // Get the API key data to update the user's usage
@@ -156,7 +157,7 @@ export async function updateApiKeyUsage(apiKey: string, tokensUsed: number): Pro
   
   // Update the user's usage
   await adminDb.collection('users').doc(apiKeyData.owner_uid).update({
-    usage: adminDb.FieldValue.increment(tokensUsed),
+    usage: FieldValue.increment(tokensUsed),
   });
   
   // If the key is pay-as-you-go, update the user's due amount
@@ -172,7 +173,7 @@ export async function updateApiKeyUsage(apiKey: string, tokensUsed: number): Pro
     
     // Update the user's pay-as-you-go due amount
     await adminDb.collection('users').doc(apiKeyData.owner_uid).update({
-      payg_due: adminDb.FieldValue.increment(cost),
+      payg_due: FieldValue.increment(cost),
     });
   }
 }

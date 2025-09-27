@@ -491,6 +491,63 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <nav className="bg-white border-b border-gray-200">
+        <div className="container mx-auto px-4">
+          <div className="flex overflow-x-auto">
+            <button
+              className={`px-6 py-4 font-medium text-sm border-b-2 ${
+                activeTab === 'overview'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('overview')}
+            >
+              Overview
+            </button>
+            <button
+              className={`px-6 py-4 font-medium text-sm border-b-2 ${
+                activeTab === 'api-keys'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('api-keys')}
+            >
+              API Keys
+            </button>
+            <button
+              className={`px-6 py-4 font-medium text-sm border-b-2 ${
+                activeTab === 'usage'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('usage')}
+            >
+              Usage
+            </button>
+            <button
+              className={`px-6 py-4 font-medium text-sm border-b-2 ${
+                activeTab === 'billing'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('billing')}
+            >
+              Billing
+            </button>
+            <button
+              className={`px-6 py-4 font-medium text-sm border-b-2 ${
+                activeTab === 'settings'
+                  ? 'border-black text-black'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+              onClick={() => setActiveTab('settings')}
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      </nav>
+
       {/* Dashboard Content */}
       <div className="container mx-auto px-4 py-8">
         {/* Overview Tab */}
@@ -520,7 +577,7 @@ export default function DashboardPage() {
               <motion.div 
                 className="bg-white rounded-2xl shadow-soft p-6"
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}"
+                animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: 0.1 }}
               >
                 <div className="flex items-center justify-between mb-4">
@@ -595,7 +652,7 @@ export default function DashboardPage() {
                     />
                     <YAxis />
                     <Tooltip 
-                      formatter={(value, name) => [`${value} ${name === 'tokens' ? 'tokens' : 'calls'}`, name === 'tokens' ? 'Tokens' : 'API Calls']]}
+                      formatter={(value, name) => [`${value} ${name === 'tokens' ? 'tokens' : 'calls'}`, name === 'tokens' ? 'Tokens' : 'API Calls']}
                       labelFormatter={(date) => {
                         const d = new Date(date);
                         return `${d.toLocaleDateString()}`;
@@ -617,7 +674,7 @@ export default function DashboardPage() {
             <motion.div 
               className="bg-white rounded-2xl shadow-soft p-6 mb-8"
               initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}"
+              animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.5 }}
             >
               <h3 className="text-lg font-bold mb-6">API Calls (Last 7 Days)</h3>

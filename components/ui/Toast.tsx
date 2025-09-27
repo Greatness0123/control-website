@@ -18,6 +18,8 @@ interface Toast {
 interface ToastContextType {
   showToast: (message: string, type: ToastType, duration?: number) => void;
   hideToast: (id: string) => void;
+  error: (message: string) => void;
+  success: (message: string) => void;
 }
 
 // Create context
@@ -46,8 +48,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prevToasts) => prevToasts.filter((toast) => toast.id !== id));
   };
 
+  const error = (message: string) => {
+    showToast(message, 'error');
+  };
+
+  const success = (message: string) => {
+    showToast(message, 'success');
+  };
+
   return (
-    <ToastContext.Provider value={{ showToast, hideToast }}>
+    <ToastContext.Provider value={{ showToast, hideToast, error, success }}>
       {children}
       <ToastContainer toasts={toasts} hideToast={hideToast} />
     </ToastContext.Provider>

@@ -18,18 +18,18 @@ interface NavLink {
 const navLinks: NavLink[] = [
   { name: 'Home', href: '/' },
   { name: 'Features', href: '/features' },
-  { 
-    name: 'Docs', 
-    href: '/docs',
-    children: [
-      { name: 'Getting Started', href: '/docs/getting-started' },
-      { name: 'API Reference', href: '/docs/api' },
-      { name: 'Command Explorer', href: '/command-explorer' },
-    ]
-  },
+  // { 
+  //   name: 'Docs', 
+  //   href: '/docs',
+  //   children: [
+  //     { name: 'Getting Started', href: '/docs/getting-started' },
+  //     { name: 'API Reference', href: '/docs/api' },
+  //     { name: 'Command Explorer', href: '/command-explorer' },
+  //   ]
+  // },
   { name: 'Pricing', href: '/pricing' },
-  { name: 'Blog', href: '/blog' },
-  { name: 'Community', href: '/community' },
+  // { name: 'Blog', href: '/blog' },
+  // { name: 'Community', href: '/community' },
   { name: 'Download', href: '/downloads' },
   { name: 'Contact', href: '/contact' },
 ];
@@ -65,7 +65,7 @@ export default function Navigation() {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="flex items-center">
+          {/* <Link href="/" className="flex items-center"> */}
             <Image 
               src="/logo.png" 
               alt="Control Logo" 
@@ -76,7 +76,7 @@ export default function Navigation() {
             <span className={`font-bold text-xl ${scrolled ? 'text-black' : 'text-white'}`}>
               Control
             </span>
-          </Link>
+          {/* </Link> */}
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-6">
