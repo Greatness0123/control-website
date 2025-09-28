@@ -338,7 +338,12 @@ export default function GettingStartedPage() {
                   title="Get Your API Key" 
                   description="Generate your first API key to start making requests"
                 >
-                  <div className="space-y-6">
+                  <div className="bg-red-50 border-l-4 border-red-400 p-4">
+                      <p className="text-red-800">
+                        <strong>Important:</strong> the site is currently in beta. API keys are limited and are still in the development phase. Please make use of your personal api keys and your preferred model from openrouter.
+                      </p>
+                    </div>
+                  <div className="space-y-6 pt-6">
                     <p className="text-gray-600">
                       Your API key is your authentication token for making requests to the Control AI API.
                     </p>
