@@ -18,8 +18,16 @@ const requestSchema = z.object({
   }).optional(),
 });
 
-// Import the Firebase admin db
-import { adminDb } from '@/lib/firebase/admin';
+// Import the Firebase admin db dynamically to prevent build issues
+async function getAdminDb() {
+  try {
+    const { adminDb } = await import('@/lib/firebase/admin');
+    return adminDb;
+  } catch (error) {
+    console.error('Failed to load Firebase admin:', error);
+    throw new Error('Firebase admin not available');
+  }
+}
 
 // Tier data interface (matching your tier API)
 interface TierData {
@@ -67,6 +75,7 @@ async function getTierData(tierName: string): Promise<TierData | null> {
     }
     
     // Fallback to Firestore
+    const adminDb = await getAdminDb();
     const tierDoc = await adminDb.collection('tiers').doc(tierName).get();
     if (!tierDoc.exists) {
       return null;
