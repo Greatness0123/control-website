@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '../firebase/admin';
+import { adminAuth, adminDb } from '@/lib/firebase/admin';
 
 /**
  * Interface for user data
@@ -51,9 +51,12 @@ export async function getCurrentUser(req: NextRequest): Promise<UserData | null>
       return null;
     }
 
+    // Fix the ID conflict issue
+    const userData = userDoc.data() as Omit<UserData, 'uid'>;
+    
     return {
       uid: decodedToken.uid,
-      ...userDoc.data(),
+      ...userData,
     } as UserData;
   } catch (error) {
     console.error('Error getting current user:', error);
@@ -66,9 +69,18 @@ export async function getCurrentUser(req: NextRequest): Promise<UserData | null>
  * @param req - The Next.js request object
  * @returns True if the user is an admin
  */
-export async function isAdmin(req: NextRequest): Promise<boolean> {
+export async function checkIfAdmin(req: NextRequest): Promise<boolean> {
   const user = await getCurrentUser(req);
   return user?.role === 'admin';
+}
+
+/**
+ * Check if the current user is an admin (alternative name to avoid conflicts)
+ * @param req - The Next.js request object
+ * @returns True if the user is an admin
+ */
+export async function isAdmin(req: NextRequest): Promise<boolean> {
+  return await checkIfAdmin(req);
 }
 
 /**
@@ -77,16 +89,24 @@ export async function isAdmin(req: NextRequest): Promise<boolean> {
  * @returns The Next.js response or null if authorized
  */
 export async function adminMiddleware(req: NextRequest): Promise<NextResponse | null> {
-  const isUserAdmin = await isAdmin(req);
-  
-  if (!isUserAdmin) {
+  try {
+    const isUserAdmin = await checkIfAdmin(req);
+    
+    if (!isUserAdmin) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Admin access required' },
+        { status: 403 }
+      );
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error in admin middleware:', error);
     return NextResponse.json(
-      { error: 'Unauthorized: Admin access required' },
-      { status: 403 }
+      { error: 'Internal server error' },
+      { status: 500 }
     );
   }
-
-  return null;
 }
 
 /**
@@ -95,14 +115,56 @@ export async function adminMiddleware(req: NextRequest): Promise<NextResponse | 
  * @returns The Next.js response or null if authorized
  */
 export async function authMiddleware(req: NextRequest): Promise<NextResponse | null> {
+  try {
+    const user = await getCurrentUser(req);
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error in auth middleware:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Get user data with proper error handling
+ * @param req - The Next.js request object
+ * @returns User data or throws error
+ */
+export async function requireAuth(req: NextRequest): Promise<UserData> {
   const user = await getCurrentUser(req);
   
   if (!user) {
-    return NextResponse.json(
-      { error: 'Unauthorized: Authentication required' },
-      { status: 401 }
-    );
+    throw new Error('Authentication required');
   }
+  
+  return user;
+}
 
-  return null;
+/**
+ * Get admin user data with proper error handling
+ * @param req - The Next.js request object
+ * @returns Admin user data or throws error
+ */
+export async function requireAdmin(req: NextRequest): Promise<UserData> {
+  const user = await getCurrentUser(req);
+  
+  if (!user) {
+    throw new Error('Authentication required');
+  }
+  
+  if (user.role !== 'admin') {
+    throw new Error('Admin access required');
+  }
+  
+  return user;
 }

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { adminMiddleware } from '@/lib/auth/utils';
 import { adminDb } from '@/lib/firebase/admin';
-import { createApiKey, revokeApiKey } from '@/lib/api/keys';
+
+// Import these conditionally to avoid build-time issues
+async function getAdminMiddleware() {
+  const { adminMiddleware } = await import('@/lib/auth/utils');
+  return adminMiddleware;
+}
+
+async function getKeyHelpers() {
+  const { createApiKey, revokeApiKey } = await import('@/lib/api/keys');
+  return { createApiKey, revokeApiKey };
+}
 
 // Schema for creating a new API key
 const createKeySchema = z.object({
@@ -16,31 +25,50 @@ const revokeKeySchema = z.object({
   key: z.string().min(1),
 });
 
+// Interface for API key data
+interface ApiKeyData {
+  id: string;
+  userId?: string;
+  tier?: string;
+  quota?: number;
+  status?: string;
+  created_at?: any;
+  last_used?: any;
+  usage?: number;
+}
+
 /**
  * GET handler for the /api/admin/keys endpoint
  * Returns all API keys
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Get all API keys from Firestore
     const keysSnapshot = await adminDb.collection('api_keys').get();
-    const keys = keysSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const keys: ApiKeyData[] = keysSnapshot.docs.map(doc => {
+      const keyData = doc.data() as Omit<ApiKeyData, 'id'>;
+      return {
+        id: doc.id,
+        ...keyData
+      };
+    });
     
     return NextResponse.json(keys);
   } catch (error: any) {
     console.error('Error getting API keys:', error);
     
     return NextResponse.json(
-      { error: 'Failed to get API keys', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to get API keys', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
@@ -51,13 +79,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
  * Creates a new API key
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Parse the request body
     const body = await req.json();
     
@@ -82,6 +111,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     
     // Create the API key
+    const { createApiKey } = await getKeyHelpers();
     const apiKey = await createApiKey(userId, tier, quota || 0);
     
     return NextResponse.json(apiKey);
@@ -89,7 +119,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('Error creating API key:', error);
     
     return NextResponse.json(
-      { error: 'Failed to create API key', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to create API key', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
@@ -100,13 +133,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  * Revokes an API key
  */
 export async function DELETE(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Parse the request body
     const body = await req.json();
     
@@ -122,6 +156,7 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     const { key } = result.data;
     
     // Revoke the API key
+    const { revokeApiKey } = await getKeyHelpers();
     const success = await revokeApiKey(key);
     
     if (!success) {
@@ -136,7 +171,10 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     console.error('Error revoking API key:', error);
     
     return NextResponse.json(
-      { error: 'Failed to revoke API key', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to revoke API key', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
