@@ -140,7 +140,7 @@ export async function sendOpenRouterRequest(
 
   try {
     // Get the actual OpenRouter key from environment variables
-    const envKey = process.env[`OPENROUTER_KEY_${apiKey}`] || process.env.OPENROUTER_KEY_1;
+    const envKey = process.env[`OPENROUTER_KEY_1`] || process.env.OPENROUTER_KEY_2;
     
     if (!envKey) {
       throw new Error(`OpenRouter API key not found for key: ${apiKey}`);
