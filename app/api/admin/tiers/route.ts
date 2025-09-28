@@ -32,7 +32,7 @@ const tierSchema = z.object({
 });
 
 // Interface for tier data
-interface TierData {
+export interface TierData {
   id: string;
   name?: string;
   default_model?: string;
