@@ -24,10 +24,13 @@ export async function GET() {
   try {
     // Get all OpenRouter keys
     const keysSnapshot = await db.collection('openrouter_keys').get();
-    const keys: OpenRouterKey[] = keysSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data() as OpenRouterKey
-    }));
+    const keys: OpenRouterKey[] = keysSnapshot.docs.map(doc => {
+      const keyData = doc.data() as Omit<OpenRouterKey, 'id'>;
+      return {
+        id: doc.id,
+        ...keyData
+      };
+    });
 
     // Get health check settings
     const settingsDoc = await db.collection('settings').doc('healthcheck').get();
