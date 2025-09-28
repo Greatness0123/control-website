@@ -3,20 +3,45 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth as getFirebaseAuth } from 'firebase-admin/auth';
 
 // Parse the service account JSON string from environment variable
-let serviceAccount;
+let serviceAccount: any;
 try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+  
+  if (!serviceAccountJson) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable is not set');
+  }
+
+  serviceAccount = JSON.parse(serviceAccountJson);
+  
+  // Validate required fields
+  if (!serviceAccount.project_id) {
+    throw new Error('Service account JSON is missing project_id');
+  }
+  if (!serviceAccount.private_key) {
+    throw new Error('Service account JSON is missing private_key');
+  }
+  if (!serviceAccount.client_email) {
+    throw new Error('Service account JSON is missing client_email');
+  }
+
 } catch (error) {
-  console.error('Error parsing Firebase service account JSON:', error);
-  throw new Error('Invalid FIREBASE_SERVICE_ACCOUNT environment variable');
+  console.error('Error with Firebase service account configuration:', error);
+  throw new Error(`Firebase configuration error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 }
 
 // Initialize Firebase Admin
 if (!getApps().length) {
-  initializeApp({
-    credential: cert(serviceAccount),
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  });
+  try {
+    initializeApp({
+      credential: cert(serviceAccount),
+      // Use project_id from service account instead of environment variable
+      projectId: serviceAccount.project_id,
+    });
+    console.log('Firebase Admin initialized successfully');
+  } catch (error) {
+    console.error('Error initializing Firebase Admin:', error);
+    throw new Error(`Failed to initialize Firebase Admin: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 const adminDb = getFirestore();
