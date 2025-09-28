@@ -86,7 +86,7 @@ async function getUsageAnalytics(period: string) {
 
   const logs: UsageLog[] = logsSnapshot.docs.map(doc => ({
     id: doc.id,
-    ...doc.data(),
+    ...(doc.data() as Omit<UsageLog, 'id'>),
     timestamp: doc.data().timestamp?.toDate()
   }));
 
@@ -143,17 +143,23 @@ async function getUsageAnalytics(period: string) {
 async function getUserAnalytics() {
   // Get all users
   const usersSnapshot = await db.collection('users').get();
-  const users: UserData[] = usersSnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data() as UserData
-  }));
+  const users: UserData[] = usersSnapshot.docs.map(doc => {
+    const userData = doc.data() as Omit<UserData, 'id'>;
+    return {
+      id: doc.id,
+      ...userData
+    };
+  });
 
   // Get all API keys
   const keysSnapshot = await db.collection('api_keys').get();
-  const keys: ApiKey[] = keysSnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data() as ApiKey
-  }));
+  const keys: ApiKey[] = keysSnapshot.docs.map(doc => {
+    const keyData = doc.data() as Omit<ApiKey, 'id'>;
+    return {
+      id: doc.id,
+      ...keyData
+    };
+  });
 
   // Count users by plan
   const usersByPlan: Record<string, number> = {};
@@ -199,7 +205,7 @@ async function getErrorAnalytics(period: string) {
 
   const errorLogs: UsageLog[] = logsSnapshot.docs.map(doc => ({
     id: doc.id,
-    ...doc.data() as UsageLog,
+    ...(doc.data() as Omit<UsageLog, 'id'>),
     timestamp: doc.data().timestamp?.toDate()
   }));
 
