@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { adminMiddleware } from '@/lib/auth/utils';
 import { adminDb } from '@/lib/firebase/admin';
-import redis from '@/lib/redis/client';
+
+// Dynamic imports to prevent build issues
+async function getAdminMiddleware() {
+  const { adminMiddleware } = await import('@/lib/auth/utils');
+  return adminMiddleware;
+}
+
+async function getRedisClient() {
+  try {
+    const redis = await import('@/lib/redis/client');
+    return redis.default;
+  } catch (error) {
+    console.warn('Redis not available:', error);
+    return null;
+  }
+}
 
 // Schema for creating or updating a tier
 const tierSchema = z.object({
@@ -17,31 +31,52 @@ const tierSchema = z.object({
   features: z.array(z.string()).optional(),
 });
 
+// Interface for tier data
+interface TierData {
+  id: string;
+  name?: string;
+  default_model?: string;
+  rate_limit_per_min?: number;
+  monthly_quota?: number;
+  price_per_token?: number;
+  display_name?: string;
+  description?: string;
+  price?: number;
+  features?: string[];
+}
+
 /**
  * GET handler for the /api/admin/tiers endpoint
  * Returns all tiers
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Get all tiers from Firestore
     const tiersSnapshot = await adminDb.collection('tiers').get();
-    const tiers = tiersSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const tiers: TierData[] = tiersSnapshot.docs.map(doc => {
+      const tierData = doc.data() as Omit<TierData, 'id'>;
+      return {
+        id: doc.id,
+        ...tierData
+      };
+    });
     
     return NextResponse.json(tiers);
   } catch (error: any) {
     console.error('Error getting tiers:', error);
     
     return NextResponse.json(
-      { error: 'Failed to get tiers', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to get tiers', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
@@ -52,13 +87,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
  * Creates or updates a tier
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Parse the request body
     const body = await req.json();
     
@@ -76,15 +112,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Create or update the tier in Firestore
     await adminDb.collection('tiers').doc(name).set(tierData, { merge: true });
     
-    // Update the tier in Redis
-    await redis.set(`tier:${name}`, JSON.stringify(tierData), { ex: 3600 });
+    // Update the tier in Redis (if available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.set(`tier:${name}`, JSON.stringify(tierData), { ex: 3600 });
+      } catch (redisError) {
+        console.warn('Redis write error:', redisError);
+        // Continue without Redis
+      }
+    }
     
     return NextResponse.json({ id: name, ...tierData });
   } catch (error: any) {
     console.error('Error creating/updating tier:', error);
     
     return NextResponse.json(
-      { error: 'Failed to create/update tier', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to create/update tier', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
@@ -95,13 +142,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  * Deletes a tier
  */
 export async function DELETE(req: NextRequest): Promise<NextResponse> {
-  // Check if the user is an admin
-  const adminResponse = await adminMiddleware(req);
-  if (adminResponse) {
-    return adminResponse;
-  }
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Get the tier name from the query parameters
     const url = new URL(req.url);
     const name = url.searchParams.get('name');
@@ -116,15 +164,26 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     // Delete the tier from Firestore
     await adminDb.collection('tiers').doc(name).delete();
     
-    // Delete the tier from Redis
-    await redis.del(`tier:${name}`);
+    // Delete the tier from Redis (if available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.del(`tier:${name}`);
+      } catch (redisError) {
+        console.warn('Redis delete error:', redisError);
+        // Continue without Redis
+      }
+    }
     
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting tier:', error);
     
     return NextResponse.json(
-      { error: 'Failed to delete tier', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to delete tier', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }
