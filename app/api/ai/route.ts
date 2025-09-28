@@ -4,6 +4,37 @@ import { validateApiKeyFormat, getApiKey, updateApiKeyUsage, logApiKeyUsage } fr
 import { checkRateLimit, checkTokenQuota, updateTokenQuota } from '@/lib/api/rate-limit';
 import { getHealthyOpenRouterKey, sendOpenRouterRequest } from '@/lib/openrouter/client';
 
+// Define tier data interface
+interface TierConfig {
+  default_model: string;
+  max_tokens_per_month: number;
+  rate_limit_per_minute: number;
+}
+
+// Tier configurations - move this to env variables or config file
+const TIER_CONFIGS: Record<string, TierConfig> = {
+  'free': {
+    default_model: 'openai/gpt-3.5-turbo',
+    max_tokens_per_month: 10000,
+    rate_limit_per_minute: 10,
+  },
+  'basic': {
+    default_model: 'openai/gpt-4o-mini',
+    max_tokens_per_month: 100000,
+    rate_limit_per_minute: 60,
+  },
+  'premium': {
+    default_model: 'openai/gpt-4',
+    max_tokens_per_month: 1000000,
+    rate_limit_per_minute: 300,
+  },
+  'enterprise': {
+    default_model: 'openai/gpt-4',
+    max_tokens_per_month: 10000000,
+    rate_limit_per_minute: 1000,
+  }
+};
+
 // Schema for the request body
 const requestSchema = z.object({
   api_key: z.string().min(1),
@@ -19,12 +50,22 @@ const requestSchema = z.object({
 });
 
 /**
+ * Get tier configuration
+ */
+function getTierConfig(tierId: string): TierConfig {
+  return TIER_CONFIGS[tierId] || TIER_CONFIGS['free'];
+}
+
+/**
  * POST handler for the /api/ai endpoint
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  let apiKeyForLogging: string | null = null;
+  let ownerUid: string | null = null;
+
   try {
     // Parse the request body
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     
     // Validate the request body
     const result = requestSchema.safeParse(body);
@@ -36,6 +77,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     
     const { api_key, prompt, options } = result.data;
+    apiKeyForLogging = api_key;
     
     // Validate the API key format
     if (!validateApiKeyFormat(api_key)) {
@@ -53,6 +95,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 401 }
       );
     }
+
+    ownerUid = apiKeyData.owner_uid;
     
     // Check rate limits
     const rateLimitResult = await checkRateLimit(api_key);
@@ -98,10 +142,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Get the model to use
     let model = options?.model;
     if (!model) {
-      // Get the default model for this tier
-      const tierDoc = await fetch(`/api/admin/tiers/${apiKeyData.tier}`);
-      const tierData = await tierDoc.json();
-      model = tierData.default_model || 'openai/gpt-3.5-turbo';
+      // Get tier configuration to determine default model
+      const tierConfig = getTierConfig(apiKeyData.tier || 'free');
+      model = tierConfig.default_model;
     }
     
     // Send the request to OpenRouter
@@ -118,12 +161,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       openRouterKey
     );
     
+    // Ensure we have usage data
+    if (!openRouterResponse?.usage?.total_tokens) {
+      throw new Error('Invalid response from OpenRouter - missing usage data');
+    }
+    
     // Calculate actual token usage
     const tokensUsed = openRouterResponse.usage.total_tokens;
     
     // Update token quota and API key usage
-    await updateTokenQuota(api_key, tokensUsed);
-    await updateApiKeyUsage(api_key, tokensUsed);
+    await Promise.all([
+      updateTokenQuota(api_key, tokensUsed).catch(err => {
+        console.error('Failed to update token quota:', err);
+      }),
+      updateApiKeyUsage(api_key, tokensUsed).catch(err => {
+        console.error('Failed to update API key usage:', err);
+      })
+    ]);
     
     // Log the API key usage
     await logApiKeyUsage(
@@ -134,36 +188,61 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       true,
       undefined,
       openRouterKey
-    );
+    ).catch(err => {
+      console.error('Failed to log API key usage:', err);
+    });
     
     // Return the OpenRouter response
     return NextResponse.json(openRouterResponse);
+    
   } catch (error: any) {
     console.error('Error in /api/ai:', error);
     
-    // Log the error
-    try {
-      const { api_key } = await req.json();
-      if (api_key && validateApiKeyFormat(api_key)) {
-        const apiKeyData = await getApiKey(api_key);
-        if (apiKeyData) {
-          await logApiKeyUsage(
-            api_key,
-            apiKeyData.owner_uid,
-            '/api/ai',
-            0,
-            false,
-            error.message || 'Unknown error'
-          );
-        }
+    // Log the error if we have the necessary data
+    if (apiKeyForLogging && ownerUid) {
+      try {
+        await logApiKeyUsage(
+          apiKeyForLogging,
+          ownerUid,
+          '/api/ai',
+          0,
+          false,
+          error.message || 'Unknown error'
+        );
+      } catch (logError) {
+        console.error('Error logging API usage error:', logError);
       }
-    } catch (logError) {
-      console.error('Error logging API usage error:', logError);
+    }
+    
+    // Return appropriate error response based on error type
+    if (error.name === 'ValidationError' || error.status === 400) {
+      return NextResponse.json(
+        { error: 'Bad request', message: error.message },
+        { status: 400 }
+      );
+    }
+    
+    if (error.status === 401 || error.message?.includes('unauthorized')) {
+      return NextResponse.json(
+        { error: 'Unauthorized', message: 'Invalid API credentials' },
+        { status: 401 }
+      );
+    }
+    
+    if (error.status === 429 || error.message?.includes('rate limit')) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded', message: 'Too many requests' },
+        { status: 429 }
+      );
     }
     
     return NextResponse.json(
-      { error: 'Internal server error', message: error.message || 'Unknown error' },
+      { error: 'Internal server error', message: 'An unexpected error occurred' },
       { status: 500 }
     );
   }
 }
+
+// Add runtime configuration to prevent static optimization issues
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
