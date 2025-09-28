@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server';
 import { getAuth } from '@/lib/firebase/admin';
 
-export async function isAdmin(request: NextRequest) {
+interface AdminCheckResult {
+  isAdmin: boolean;
+  userId: string | null;
+}
+
+export async function checkAdminStatus(request: NextRequest): Promise<AdminCheckResult> {
   try {
     // Get the authorization header
     const authHeader = request.headers.get('authorization');
@@ -26,12 +31,17 @@ export async function isAdmin(request: NextRequest) {
   }
 }
 
-export async function requireAdmin(request: NextRequest) {
-  const { isAdmin, userId } = await isAdmin(request);
+// Keep the original function name for backward compatibility, but call the renamed function
+export async function isAdmin(request: NextRequest): Promise<AdminCheckResult> {
+  return await checkAdminStatus(request);
+}
+
+export async function requireAdmin(request: NextRequest): Promise<{ userId: string }> {
+  const adminResult = await checkAdminStatus(request);
   
-  if (!isAdmin) {
+  if (!adminResult.isAdmin) {
     throw new Error('Admin access required');
   }
   
-  return { userId };
+  return { userId: adminResult.userId! }; // Non-null assertion since we know isAdmin is true
 }
