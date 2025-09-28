@@ -1,28 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { validateApiKeyFormat, getApiKey, updateApiKeyUsage, logApiKeyUsage } from '@/lib/api/keys';
-import { checkRateLimit, checkTokenQuota, updateTokenQuota } from '@/lib/api/rate-limit';
-import { getHealthyOpenRouterKey, sendOpenRouterRequest } from '@/lib/openrouter/client';
-
-// Schema for the request body
-const requestSchema = z.object({
-  api_key: z.string().min(1),
-  prompt: z.string().min(1),
-  options: z.object({
-    model: z.string().optional(),
-    max_tokens: z.number().optional(),
-    temperature: z.number().optional(),
-    top_p: z.number().optional(),
-    stream: z.boolean().optional(),
-    stop: z.array(z.string()).optional(),
-  }).optional(),
-});
-
-// Import the Firebase admin db
 import { adminDb } from '@/lib/firebase/admin';
 
-// Tier data interface (matching your tier API)
-interface TierData {
+// Dynamic imports to prevent build issues
+async function getAdminMiddleware() {
+  const { adminMiddleware } = await import('@/lib/auth/utils');
+  return adminMiddleware;
+}
+
+async function getRedisClient() {
+  try {
+    const redis = await import('@/lib/redis/client');
+    return redis.default;
+  } catch (error) {
+    console.warn('Redis not available:', error);
+    return null;
+  }
+}
+
+// Schema for creating or updating a tier
+const tierSchema = z.object({
+  name: z.string().min(1),
+  default_model: z.string().min(1),
+  rate_limit_per_min: z.number().int().positive(),
+  monthly_quota: z.number().int().nonnegative(),
+  price_per_token: z.number().nonnegative(),
+  display_name: z.string().min(1),
+  description: z.string().optional(),
+  price: z.number().nonnegative(),
+  features: z.array(z.string()).optional(),
+});
+
+// Interface for tier data
+export interface TierData {
   id: string;
   name?: string;
   default_model?: string;
@@ -35,77 +45,61 @@ interface TierData {
   features?: string[];
 }
 
-// Helper function to get Redis client (same as in your tier API)
-async function getRedisClient() {
+/**
+ * GET handler for the /api/admin/tiers endpoint
+ * Returns all tiers
+ */
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const redis = await import('@/lib/redis/client');
-    return redis.default;
-  } catch (error) {
-    console.warn('Redis not available:', error);
-    return null;
-  }
-}
-
-// Helper function to get tier data directly from Firestore/Redis
-async function getTierData(tierName: string): Promise<TierData | null> {
-  try {
-    // First try Redis cache
-    const redis = await getRedisClient();
-    if (redis) {
-      try {
-        const cachedTier = await redis.get(`tier:${tierName}`);
-        if (cachedTier && typeof cachedTier === 'string') {
-          const tierData = JSON.parse(cachedTier);
-          return {
-            id: tierName,
-            ...tierData
-          };
-        }
-      } catch (redisError) {
-        console.warn('Redis read error:', redisError);
-      }
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
     }
     
-    // Fallback to Firestore
-    const tierDoc = await adminDb.collection('tiers').doc(tierName).get();
-    if (!tierDoc.exists) {
-      return null;
-    }
+    // Get all tiers from Firestore
+    const tiersSnapshot = await adminDb.collection('tiers').get();
+    const tiers: TierData[] = tiersSnapshot.docs.map(doc => {
+      const tierData = doc.data() as Omit<TierData, 'id'>;
+      return {
+        id: doc.id,
+        ...tierData
+      };
+    });
     
-    const tierData = tierDoc.data() as Omit<TierData, 'id'>;
-    const fullTierData: TierData = {
-      id: tierDoc.id,
-      ...tierData
-    };
+    return NextResponse.json(tiers);
+  } catch (error: any) {
+    console.error('Error getting tiers:', error);
     
-    // Cache in Redis if available
-    if (redis) {
-      try {
-        await redis.set(`tier:${tierName}`, JSON.stringify(tierData), { ex: 3600 });
-      } catch (redisError) {
-        console.warn('Redis write error:', redisError);
-      }
-    }
-    
-    return fullTierData;
-  } catch (error) {
-    console.error('Error getting tier data:', error);
-    return null;
+    return NextResponse.json(
+      { 
+        error: 'Failed to get tiers', 
+        message: error?.message || 'Unknown error' 
+      },
+      { status: 500 }
+    );
   }
 }
 
 /**
- * POST handler for the /api/ai endpoint
+ * POST handler for the /api/admin/tiers endpoint
+ * Creates or updates a tier
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let api_key: string | undefined;
-  
   try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
     // Parse the request body
     const body = await req.json();
     
     // Validate the request body
-    const result = requestSchema.safeParse(body);
+    const result = tierSchema.safeParse(body);
     if (!result.success) {
       return NextResponse.json(
         { error: 'Invalid request body', details: result.error.format() },
@@ -113,138 +107,83 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    const { api_key: parsedApiKey, prompt, options } = result.data;
-    api_key = parsedApiKey;
+    const { name, ...tierData } = result.data;
     
-    // Validate the API key format
-    if (!validateApiKeyFormat(api_key)) {
+    // Create or update the tier in Firestore
+    await adminDb.collection('tiers').doc(name).set(tierData, { merge: true });
+    
+    // Update the tier in Redis (if available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.set(`tier:${name}`, JSON.stringify(tierData), { ex: 3600 });
+      } catch (redisError) {
+        console.warn('Redis write error:', redisError);
+        // Continue without Redis
+      }
+    }
+    
+    return NextResponse.json({ id: name, ...tierData });
+  } catch (error: any) {
+    console.error('Error creating/updating tier:', error);
+    
+    return NextResponse.json(
+      { 
+        error: 'Failed to create/update tier', 
+        message: error?.message || 'Unknown error' 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE handler for the /api/admin/tiers endpoint
+ * Deletes a tier
+ */
+export async function DELETE(req: NextRequest): Promise<NextResponse> {
+  try {
+    // Check if the user is an admin
+    const adminMiddleware = await getAdminMiddleware();
+    const adminResponse = await adminMiddleware(req);
+    if (adminResponse) {
+      return adminResponse;
+    }
+    
+    // Get the tier name from the query parameters
+    const url = new URL(req.url);
+    const name = url.searchParams.get('name');
+    
+    if (!name) {
       return NextResponse.json(
-        { error: 'Invalid API key format' },
+        { error: 'Missing tier name' },
         { status: 400 }
       );
     }
     
-    // Get the API key data
-    const apiKeyData = await getApiKey(api_key);
-    if (!apiKeyData || apiKeyData.status !== 'active') {
-      return NextResponse.json(
-        { error: 'Invalid or inactive API key' },
-        { status: 401 }
-      );
-    }
+    // Delete the tier from Firestore
+    await adminDb.collection('tiers').doc(name).delete();
     
-    // Check rate limits
-    const rateLimitResult = await checkRateLimit(api_key);
-    if (rateLimitResult.limited) {
-      return NextResponse.json(
-        { 
-          error: 'Rate limit exceeded',
-          limit: rateLimitResult.limit,
-          reset_at: rateLimitResult.resetAt.toISOString(),
-        },
-        { 
-          status: 429,
-          headers: {
-            'X-RateLimit-Limit': rateLimitResult.limit.toString(),
-            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
-            'X-RateLimit-Reset': Math.floor(rateLimitResult.resetAt.getTime() / 1000).toString(),
-          }
-        }
-      );
-    }
-    
-    // Get the model to use
-    let model = options?.model;
-    if (!model) {
-      // Get the default model for this tier using direct Firestore/Redis access
+    // Delete the tier from Redis (if available)
+    const redis = await getRedisClient();
+    if (redis) {
       try {
-        const tierData = await getTierData(apiKeyData.tier);
-        model = tierData?.default_model || 'openai/gpt-3.5-turbo';
-      } catch (tierError) {
-        console.error('Error getting tier data:', tierError);
-        model = 'openai/gpt-3.5-turbo'; // fallback
+        await redis.del(`tier:${name}`);
+      } catch (redisError) {
+        console.warn('Redis delete error:', redisError);
+        // Continue without Redis
       }
     }
     
-    // Estimate token usage (very rough estimate)
-    const estimatedTokens = Math.ceil(prompt.length / 4) + (options?.max_tokens || 1000);
-    
-    // Check token quota
-    const quotaExceeded = await checkTokenQuota(api_key, estimatedTokens);
-    if (quotaExceeded) {
-      return NextResponse.json(
-        { error: 'Monthly token quota exceeded' },
-        { status: 403 }
-      );
-    }
-    
-    // Get a healthy OpenRouter key
-    const openRouterKey = await getHealthyOpenRouterKey();
-    if (!openRouterKey) {
-      return NextResponse.json(
-        { error: 'No healthy OpenRouter keys available' },
-        { status: 503 }
-      );
-    }
-    
-    // Send the request to OpenRouter
-    const openRouterResponse = await sendOpenRouterRequest(
-      {
-        prompt,
-        model,
-        max_tokens: options?.max_tokens,
-        temperature: options?.temperature,
-        top_p: options?.top_p,
-        stream: options?.stream,
-        stop: options?.stop,
-      },
-      openRouterKey
-    );
-    
-    // Calculate actual token usage
-    const tokensUsed = openRouterResponse.usage?.total_tokens || estimatedTokens;
-    
-    // Update token quota and API key usage
-    await updateTokenQuota(api_key, tokensUsed);
-    await updateApiKeyUsage(api_key, tokensUsed);
-    
-    // Log the API key usage
-    await logApiKeyUsage(
-      api_key,
-      apiKeyData.owner_uid,
-      '/api/ai',
-      tokensUsed,
-      true,
-      undefined,
-      openRouterKey
-    );
-    
-    // Return the OpenRouter response
-    return NextResponse.json(openRouterResponse);
+    return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('Error in /api/ai:', error);
-    
-    // Log the error if we have a valid API key
-    if (api_key && validateApiKeyFormat(api_key)) {
-      try {
-        const apiKeyData = await getApiKey(api_key);
-        if (apiKeyData) {
-          await logApiKeyUsage(
-            api_key,
-            apiKeyData.owner_uid,
-            '/api/ai',
-            0,
-            false,
-            error.message || 'Unknown error'
-          );
-        }
-      } catch (logError) {
-        console.error('Error logging API usage error:', logError);
-      }
-    }
+    console.error('Error deleting tier:', error);
     
     return NextResponse.json(
-      { error: 'Internal server error', message: error.message || 'Unknown error' },
+      { 
+        error: 'Failed to delete tier', 
+        message: error?.message || 'Unknown error' 
+      },
       { status: 500 }
     );
   }

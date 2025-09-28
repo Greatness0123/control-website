@@ -10,6 +10,9 @@ const nextConfig = {
       'avatars.githubusercontent.com', // For GitHub profile pictures
     ],
   },
+  experimental: {
+    serverComponentsExternalPackages: ['firebase-admin'],
+  },
   async headers() {
     return [
       {

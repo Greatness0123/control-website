@@ -18,10 +18,88 @@ const requestSchema = z.object({
   }).optional(),
 });
 
+// Import the Firebase admin db
+import { adminDb } from '@/lib/firebase/admin';
+
+// Tier data interface (matching your tier API)
+interface TierData {
+  id: string;
+  name?: string;
+  default_model?: string;
+  rate_limit_per_min?: number;
+  monthly_quota?: number;
+  price_per_token?: number;
+  display_name?: string;
+  description?: string;
+  price?: number;
+  features?: string[];
+}
+
+// Helper function to get Redis client (same as in your tier API)
+async function getRedisClient() {
+  try {
+    const redis = await import('@/lib/redis/client');
+    return redis.default;
+  } catch (error) {
+    console.warn('Redis not available:', error);
+    return null;
+  }
+}
+
+// Helper function to get tier data directly from Firestore/Redis
+async function getTierData(tierName: string): Promise<TierData | null> {
+  try {
+    // First try Redis cache
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cachedTier = await redis.get(`tier:${tierName}`);
+        if (cachedTier && typeof cachedTier === 'string') {
+          const tierData = JSON.parse(cachedTier);
+          return {
+            id: tierName,
+            ...tierData
+          };
+        }
+      } catch (redisError) {
+        console.warn('Redis read error:', redisError);
+      }
+    }
+    
+    // Fallback to Firestore
+    const tierDoc = await adminDb.collection('tiers').doc(tierName).get();
+    if (!tierDoc.exists) {
+      return null;
+    }
+    
+    const tierData = tierDoc.data() as Omit<TierData, 'id'>;
+    const fullTierData: TierData = {
+      id: tierDoc.id,
+      ...tierData
+    };
+    
+    // Cache in Redis if available
+    if (redis) {
+      try {
+        await redis.set(`tier:${tierName}`, JSON.stringify(tierData), { ex: 3600 });
+      } catch (redisError) {
+        console.warn('Redis write error:', redisError);
+      }
+    }
+    
+    return fullTierData;
+  } catch (error) {
+    console.error('Error getting tier data:', error);
+    return null;
+  }
+}
+
 /**
  * POST handler for the /api/ai endpoint
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  let api_key: string | undefined;
+  
   try {
     // Parse the request body
     const body = await req.json();
@@ -35,7 +113,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    const { api_key, prompt, options } = result.data;
+    const { api_key: parsedApiKey, prompt, options } = result.data;
+    api_key = parsedApiKey;
     
     // Validate the API key format
     if (!validateApiKeyFormat(api_key)) {
@@ -74,6 +153,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
+    // Get the model to use
+    let model = options?.model;
+    if (!model) {
+      // Get the default model for this tier using direct Firestore/Redis access
+      try {
+        const tierData = await getTierData(apiKeyData.tier);
+        model = tierData?.default_model || 'openai/gpt-3.5-turbo';
+      } catch (tierError) {
+        console.error('Error getting tier data:', tierError);
+        model = 'openai/gpt-3.5-turbo'; // fallback
+      }
+    }
+    
     // Estimate token usage (very rough estimate)
     const estimatedTokens = Math.ceil(prompt.length / 4) + (options?.max_tokens || 1000);
     
@@ -95,15 +187,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    // Get the model to use
-    let model = options?.model;
-    if (!model) {
-      // Get the default model for this tier
-      const tierDoc = await fetch(`/api/admin/tiers/${apiKeyData.tier}`);
-      const tierData = await tierDoc.json();
-      model = tierData.default_model || 'openai/gpt-3.5-turbo';
-    }
-    
     // Send the request to OpenRouter
     const openRouterResponse = await sendOpenRouterRequest(
       {
@@ -119,7 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     
     // Calculate actual token usage
-    const tokensUsed = openRouterResponse.usage.total_tokens;
+    const tokensUsed = openRouterResponse.usage?.total_tokens || estimatedTokens;
     
     // Update token quota and API key usage
     await updateTokenQuota(api_key, tokensUsed);
@@ -141,10 +224,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (error: any) {
     console.error('Error in /api/ai:', error);
     
-    // Log the error
-    try {
-      const { api_key } = await req.json();
-      if (api_key && validateApiKeyFormat(api_key)) {
+    // Log the error if we have a valid API key
+    if (api_key && validateApiKeyFormat(api_key)) {
+      try {
         const apiKeyData = await getApiKey(api_key);
         if (apiKeyData) {
           await logApiKeyUsage(
@@ -156,9 +238,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             error.message || 'Unknown error'
           );
         }
+      } catch (logError) {
+        console.error('Error logging API usage error:', logError);
       }
-    } catch (logError) {
-      console.error('Error logging API usage error:', logError);
     }
     
     return NextResponse.json(
