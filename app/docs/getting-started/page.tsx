@@ -213,7 +213,7 @@ export default function GettingStartedPage() {
                       Control Desktop is available for Windows, macOS, and Linux. Download the appropriate version for your system.
                     </p>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="border border-gray-200 rounded-lg p-4">
                         <h4 className="font-bold mb-2">Windows</h4>
                         <p className="text-sm text-gray-600 mb-3">Windows 10 or later</p>
@@ -228,13 +228,13 @@ export default function GettingStartedPage() {
                           Download for macOS
                         </Link>
                       </div>
-                      <div className="border border-gray-200 rounded-lg p-4">
+                      {/* <div className="border border-gray-200 rounded-lg p-4">
                         <h4 className="font-bold mb-2">Linux</h4>
                         <p className="text-sm text-gray-600 mb-3">Ubuntu 20.04+ or equivalent</p>
                         <Link href="/downloads" className="btn btn-sm btn-primary">
                           Download for Linux
                         </Link>
-                      </div>
+                      </div> */}
                     </div>
 
                     <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
