@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase/admin';
-import { isAdmin } from '@/lib/auth/admin';
+
+// Dynamic import to avoid build-time issues
+async function getAdminChecker() {
+  try {
+    const { checkAdminStatus } = await import('@/lib/auth/admin');
+    return checkAdminStatus;
+  } catch (error) {
+    // Fallback if the function doesn't exist
+    const { isAdmin } = await import('@/lib/auth/admin');
+    return isAdmin;
+  }
+}
 
 // Define interfaces for the log data
 interface UsageLog {
@@ -40,8 +51,13 @@ interface UserData {
 export async function GET(request: NextRequest) {
   try {
     // Check if the user is an admin
-    const adminCheck = await isAdmin(request);
-    if (!adminCheck.isAdmin) {
+    const checkAdmin = await getAdminChecker();
+    const adminCheck = await checkAdmin(request);
+    
+    // Handle different return formats
+    const isUserAdmin = typeof adminCheck === 'boolean' ? adminCheck : adminCheck?.isAdmin;
+    
+    if (!isUserAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -75,162 +91,177 @@ export async function GET(request: NextRequest) {
 
 // Get usage analytics
 async function getUsageAnalytics(period: string) {
-  // Calculate the start time based on the period
-  const startTime = getStartTime(period);
+  try {
+    // Calculate the start time based on the period
+    const startTime = getStartTime(period);
 
-  // Get usage logs
-  const logsSnapshot = await db.collection('usage_logs')
-    .where('timestamp', '>=', startTime)
-    .orderBy('timestamp', 'desc')
-    .get();
+    // Get usage logs
+    const logsSnapshot = await db.collection('usage_logs')
+      .where('timestamp', '>=', startTime)
+      .orderBy('timestamp', 'desc')
+      .get();
 
-  const logs: UsageLog[] = logsSnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...(doc.data() as Omit<UsageLog, 'id'>),
-    timestamp: doc.data().timestamp?.toDate()
-  }));
+    const logs: UsageLog[] = logsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...(doc.data() as Omit<UsageLog, 'id'>),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
 
-  // Calculate total tokens used
-  const totalTokens = logs.reduce((sum, log) => sum + (log.tokens_used || 0), 0);
+    // Calculate total tokens used
+    const totalTokens = logs.reduce((sum, log) => sum + (log.tokens_used || 0), 0);
 
-  // Calculate success rate
-  const successCount = logs.filter(log => log.success).length;
-  const successRate = logs.length > 0 ? (successCount / logs.length) * 100 : 0;
+    // Calculate success rate
+    const successCount = logs.filter(log => log.success).length;
+    const successRate = logs.length > 0 ? (successCount / logs.length) * 100 : 0;
 
-  // Group usage by API key
-  const usageByKey: Record<string, number> = {};
-  logs.forEach(log => {
-    if (log.api_key) {
-      usageByKey[log.api_key] = (usageByKey[log.api_key] || 0) + (log.tokens_used || 0);
-    }
-  });
+    // Group usage by API key
+    const usageByKey: Record<string, number> = {};
+    logs.forEach(log => {
+      if (log.api_key) {
+        usageByKey[log.api_key] = (usageByKey[log.api_key] || 0) + (log.tokens_used || 0);
+      }
+    });
 
-  // Get top API keys by usage
-  const topApiKeys = Object.entries(usageByKey)
-    .map(([key, tokens]) => ({ key, tokens }))
-    .sort((a, b) => b.tokens - a.tokens)
-    .slice(0, 5);
+    // Get top API keys by usage
+    const topApiKeys = Object.entries(usageByKey)
+      .map(([key, tokens]) => ({ key, tokens }))
+      .sort((a, b) => b.tokens - a.tokens)
+      .slice(0, 5);
 
-  // Group errors by type
-  const errorTypes: Record<string, number> = {};
-  logs.forEach(log => {
-    if (!log.success && log.error_code) {
-      errorTypes[log.error_code] = (errorTypes[log.error_code] || 0) + 1;
-    }
-  });
+    // Group errors by type
+    const errorTypes: Record<string, number> = {};
+    logs.forEach(log => {
+      if (!log.success && log.error_code) {
+        errorTypes[log.error_code] = (errorTypes[log.error_code] || 0) + 1;
+      }
+    });
 
-  // Group usage by OpenRouter key
-  const usageByOpenRouterKey: Record<string, number> = {};
-  logs.forEach(log => {
-    if (log.openrouter_key_used) {
-      usageByOpenRouterKey[log.openrouter_key_used] = 
-        (usageByOpenRouterKey[log.openrouter_key_used] || 0) + (log.tokens_used || 0);
-    }
-  });
+    // Group usage by OpenRouter key
+    const usageByOpenRouterKey: Record<string, number> = {};
+    logs.forEach(log => {
+      if (log.openrouter_key_used) {
+        usageByOpenRouterKey[log.openrouter_key_used] = 
+          (usageByOpenRouterKey[log.openrouter_key_used] || 0) + (log.tokens_used || 0);
+      }
+    });
 
-  return {
-    totalRequests: logs.length,
-    totalTokens,
-    successRate,
-    topApiKeys,
-    errorTypes,
-    usageByOpenRouterKey,
-    recentLogs: logs.slice(0, 10)
-  };
+    return {
+      totalRequests: logs.length,
+      totalTokens,
+      successRate,
+      topApiKeys,
+      errorTypes,
+      usageByOpenRouterKey,
+      recentLogs: logs.slice(0, 10)
+    };
+  } catch (error) {
+    console.error('Error in getUsageAnalytics:', error);
+    throw error;
+  }
 }
 
 // Get user analytics
 async function getUserAnalytics() {
-  // Get all users
-  const usersSnapshot = await db.collection('users').get();
-  const users: UserData[] = usersSnapshot.docs.map(doc => {
-    const userData = doc.data() as Omit<UserData, 'id'>;
+  try {
+    // Get all users
+    const usersSnapshot = await db.collection('users').get();
+    const users: UserData[] = usersSnapshot.docs.map(doc => {
+      const userData = doc.data() as Omit<UserData, 'id'>;
+      return {
+        id: doc.id,
+        ...userData
+      };
+    });
+
+    // Get all API keys
+    const keysSnapshot = await db.collection('api_keys').get();
+    const keys: ApiKey[] = keysSnapshot.docs.map(doc => {
+      const keyData = doc.data() as Omit<ApiKey, 'id'>;
+      return {
+        id: doc.id,
+        ...keyData
+      };
+    });
+
+    // Count users by plan
+    const usersByPlan: Record<string, number> = {};
+    users.forEach(user => {
+      const plan = user.plan || 'free';
+      usersByPlan[plan] = (usersByPlan[plan] || 0) + 1;
+    });
+
+    // Count active API keys
+    const activeKeys = keys.filter(key => key.status === 'active').length;
+
+    // Get new users in the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const newUsers = users.filter(user => 
+      user.created_at && user.created_at.toDate() >= thirtyDaysAgo
+    ).length;
+
     return {
-      id: doc.id,
-      ...userData
+      totalUsers: users.length,
+      usersByPlan,
+      activeKeys,
+      newUsers,
+      recentUsers: users
+        .filter(user => user.created_at)
+        .sort((a, b) => b.created_at.toDate() - a.created_at.toDate())
+        .slice(0, 10)
     };
-  });
-
-  // Get all API keys
-  const keysSnapshot = await db.collection('api_keys').get();
-  const keys: ApiKey[] = keysSnapshot.docs.map(doc => {
-    const keyData = doc.data() as Omit<ApiKey, 'id'>;
-    return {
-      id: doc.id,
-      ...keyData
-    };
-  });
-
-  // Count users by plan
-  const usersByPlan: Record<string, number> = {};
-  users.forEach(user => {
-    const plan = user.plan || 'free';
-    usersByPlan[plan] = (usersByPlan[plan] || 0) + 1;
-  });
-
-  // Count active API keys
-  const activeKeys = keys.filter(key => key.status === 'active').length;
-
-  // Get new users in the last 30 days
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  
-  const newUsers = users.filter(user => 
-    user.created_at && user.created_at.toDate() >= thirtyDaysAgo
-  ).length;
-
-  return {
-    totalUsers: users.length,
-    usersByPlan,
-    activeKeys,
-    newUsers,
-    recentUsers: users
-      .filter(user => user.created_at)
-      .sort((a, b) => b.created_at.toDate() - a.created_at.toDate())
-      .slice(0, 10)
-  };
+  } catch (error) {
+    console.error('Error in getUserAnalytics:', error);
+    throw error;
+  }
 }
 
 // Get error analytics
 async function getErrorAnalytics(period: string) {
-  // Calculate the start time based on the period
-  const startTime = getStartTime(period);
+  try {
+    // Calculate the start time based on the period
+    const startTime = getStartTime(period);
 
-  // Get error logs
-  const logsSnapshot = await db.collection('usage_logs')
-    .where('timestamp', '>=', startTime)
-    .where('success', '==', false)
-    .orderBy('timestamp', 'desc')
-    .get();
+    // Get error logs
+    const logsSnapshot = await db.collection('usage_logs')
+      .where('timestamp', '>=', startTime)
+      .where('success', '==', false)
+      .orderBy('timestamp', 'desc')
+      .get();
 
-  const errorLogs: UsageLog[] = logsSnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...(doc.data() as Omit<UsageLog, 'id'>),
-    timestamp: doc.data().timestamp?.toDate()
-  }));
+    const errorLogs: UsageLog[] = logsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...(doc.data() as Omit<UsageLog, 'id'>),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
 
-  // Group errors by type
-  const errorsByType: Record<string, number> = {};
-  errorLogs.forEach(log => {
-    if (log.error_code) {
-      errorsByType[log.error_code] = (errorsByType[log.error_code] || 0) + 1;
-    }
-  });
+    // Group errors by type
+    const errorsByType: Record<string, number> = {};
+    errorLogs.forEach(log => {
+      if (log.error_code) {
+        errorsByType[log.error_code] = (errorsByType[log.error_code] || 0) + 1;
+      }
+    });
 
-  // Group errors by API key
-  const errorsByKey: Record<string, number> = {};
-  errorLogs.forEach(log => {
-    if (log.api_key) {
-      errorsByKey[log.api_key] = (errorsByKey[log.api_key] || 0) + 1;
-    }
-  });
+    // Group errors by API key
+    const errorsByKey: Record<string, number> = {};
+    errorLogs.forEach(log => {
+      if (log.api_key) {
+        errorsByKey[log.api_key] = (errorsByKey[log.api_key] || 0) + 1;
+      }
+    });
 
-  return {
-    totalErrors: errorLogs.length,
-    errorsByType,
-    errorsByKey,
-    recentErrors: errorLogs.slice(0, 10)
-  };
+    return {
+      totalErrors: errorLogs.length,
+      errorsByType,
+      errorsByKey,
+      recentErrors: errorLogs.slice(0, 10)
+    };
+  } catch (error) {
+    console.error('Error in getErrorAnalytics:', error);
+    throw error;
+  }
 }
 
 // Helper function to calculate start time based on period
