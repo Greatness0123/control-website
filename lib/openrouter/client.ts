@@ -91,7 +91,7 @@ export async function getHealthyOpenRouterKey(policy: 'round_robin' | 'least_loa
   if (policy === 'round_robin') {
     // Get the current round-robin index
     const index = await redis.incr(REDIS_KEYS.OPENROUTER_RR_INDEX);
-    return healthyKeys[index % healthyKeys.length];
+    return healthyKeys[(index - 1) % healthyKeys.length];
   } else if (policy === 'least_load') {
     // Get the concurrent count for each key
     const concurrentCounts = await Promise.all(
@@ -127,68 +127,79 @@ export async function sendOpenRouterRequest(
     const envKey = process.env[`OPENROUTER_KEY_${apiKey}`] || process.env.OPENROUTER_KEY_1;
     
     if (!envKey) {
-       // Create abort controller for timeout\n       const controller = new AbortController();\n       const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    // Send the request to OpenRouter
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${envKey}`,
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-        'X-Title': 'Control Desktop',
-      },
-      body: JSON.stringify({
-        model: options.model || 'openai/gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'user',
-            content: options.prompt,
-          },
-        ],
-        max_tokens: options.max_tokens || 1000,
-        temperature: options.temperature || 0.7,
-        top_p: options.top_p || 1,
-        stream: options.stream || false,
-        stop: options.stop || [],
-      }),
-      signal: controller.signal,
-    });
-       clearTimeout(timeoutId);
-
-    // Check for errors
-    if (!response.ok) {
-      const errorData = await response.json() as OpenRouterError;
-      
-      // Handle rate limiting
-      if (response.status === 429) {
-        await redis.set(
-          `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
-          OpenRouterStatus.RATE_LIMITED,
-          { ex: REDIS_TTL.RATE_LIMITED }
-        );
-        throw new Error(`OpenRouter rate limited: ${errorData.error.message}`);
-      }
-      
-      // Handle other errors
-      await redis.set(
-        `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
-        OpenRouterStatus.UNHEALTHY,
-        { ex: REDIS_TTL.UNHEALTHY }
-      );
-      throw new Error(`OpenRouter error (${response.status}): ${errorData.error.message}`);
+      throw new Error(`OpenRouter API key not found for key: ${apiKey}`);
     }
 
-    // Parse the response
-    const data = await response.json() as OpenRouterResponse;
-    
-    // Mark the key as healthy
-    await redis.set(
-      `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
-      OpenRouterStatus.HEALTHY
-    );
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    return data;
+    try {
+      // Send the request to OpenRouter
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${envKey}`,
+          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+          'X-Title': 'Control Desktop',
+        },
+        body: JSON.stringify({
+          model: options.model || 'openai/gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'user',
+              content: options.prompt,
+            },
+          ],
+          max_tokens: options.max_tokens || 1000,
+          temperature: options.temperature || 0.7,
+          top_p: options.top_p || 1,
+          stream: options.stream || false,
+          stop: options.stop || [],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Check for errors
+      if (!response.ok) {
+        const errorData = await response.json() as OpenRouterError;
+        
+        // Handle rate limiting
+        if (response.status === 429) {
+          await redis.set(
+            `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
+            OpenRouterStatus.RATE_LIMITED,
+            { ex: REDIS_TTL.RATE_LIMITED }
+          );
+          throw new Error(`OpenRouter rate limited: ${errorData.error.message}`);
+        }
+        
+        // Handle other errors
+        await redis.set(
+          `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
+          OpenRouterStatus.UNHEALTHY,
+          { ex: REDIS_TTL.UNHEALTHY }
+        );
+        throw new Error(`OpenRouter error (${response.status}): ${errorData.error.message}`);
+      }
+
+      // Parse the response
+      const data = await response.json() as OpenRouterResponse;
+      
+      // Mark the key as healthy
+      await redis.set(
+        `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
+        OpenRouterStatus.HEALTHY
+      );
+
+      return data;
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      throw fetchError;
+    }
   } catch (error) {
     // Mark the key as unhealthy
     await redis.set(
