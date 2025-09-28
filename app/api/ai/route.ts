@@ -11,7 +11,7 @@ interface TierConfig {
   rate_limit_per_minute: number;
 }
 
-// Tier configurations - move this to env variables or config file
+// Tier configurations - you can move these to environment variables
 const TIER_CONFIGS: Record<string, TierConfig> = {
   'free': {
     default_model: 'openai/gpt-3.5-turbo',
@@ -50,9 +50,10 @@ const requestSchema = z.object({
 });
 
 /**
- * Get tier configuration
+ * Get tier configuration safely
  */
-function getTierConfig(tierId: string): TierConfig {
+function getTierConfig(tierId?: string): TierConfig {
+  if (!tierId) return TIER_CONFIGS['free'];
   return TIER_CONFIGS[tierId] || TIER_CONFIGS['free'];
 }
 
@@ -64,8 +65,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let ownerUid: string | null = null;
 
   try {
-    // Parse the request body
-    const body = await req.json().catch(() => ({}));
+    // Parse the request body with error handling
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      return NextResponse.json(
+        { error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
     
     // Validate the request body
     const result = requestSchema.safeParse(body);
@@ -139,11 +148,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    // Get the model to use
+    // Get the model to use - NO MORE INTERNAL API CALLS
     let model = options?.model;
     if (!model) {
-      // Get tier configuration to determine default model
-      const tierConfig = getTierConfig(apiKeyData.tier || 'free');
+      const tierConfig = getTierConfig(apiKeyData.tier);
       model = tierConfig.default_model;
     }
     
@@ -161,7 +169,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       openRouterKey
     );
     
-    // Ensure we have usage data
+    // Validate OpenRouter response
     if (!openRouterResponse?.usage?.total_tokens) {
       throw new Error('Invalid response from OpenRouter - missing usage data');
     }
@@ -169,28 +177,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Calculate actual token usage
     const tokensUsed = openRouterResponse.usage.total_tokens;
     
-    // Update token quota and API key usage
-    await Promise.all([
-      updateTokenQuota(api_key, tokensUsed).catch(err => {
-        console.error('Failed to update token quota:', err);
-      }),
-      updateApiKeyUsage(api_key, tokensUsed).catch(err => {
-        console.error('Failed to update API key usage:', err);
-      })
-    ]);
+    // Update token quota and API key usage with error handling
+    try {
+      await Promise.all([
+        updateTokenQuota(api_key, tokensUsed),
+        updateApiKeyUsage(api_key, tokensUsed)
+      ]);
+    } catch (updateError) {
+      console.error('Error updating quotas:', updateError);
+      // Continue processing - don't fail the request for quota update errors
+    }
     
-    // Log the API key usage
-    await logApiKeyUsage(
-      api_key,
-      apiKeyData.owner_uid,
-      '/api/ai',
-      tokensUsed,
-      true,
-      undefined,
-      openRouterKey
-    ).catch(err => {
-      console.error('Failed to log API key usage:', err);
-    });
+    // Log the API key usage with error handling
+    try {
+      await logApiKeyUsage(
+        api_key,
+        apiKeyData.owner_uid,
+        '/api/ai',
+        tokensUsed,
+        true,
+        undefined,
+        openRouterKey
+      );
+    } catch (logError) {
+      console.error('Error logging API usage:', logError);
+      // Continue processing - don't fail the request for logging errors
+    }
     
     // Return the OpenRouter response
     return NextResponse.json(openRouterResponse);
@@ -198,7 +210,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (error: any) {
     console.error('Error in /api/ai:', error);
     
-    // Log the error if we have the necessary data
+    // Enhanced error logging with safety checks
     if (apiKeyForLogging && ownerUid) {
       try {
         await logApiKeyUsage(
@@ -214,7 +226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
     
-    // Return appropriate error response based on error type
+    // Return appropriate error responses
     if (error.name === 'ValidationError' || error.status === 400) {
       return NextResponse.json(
         { error: 'Bad request', message: error.message },
@@ -231,11 +243,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     
     if (error.status === 429 || error.message?.includes('rate limit')) {
       return NextResponse.json(
-        { error: 'Rate limit exceeded', message: 'Too many requests' },
+        { error: 'Rate limit exceeded', message: 'Please try again later' },
         { status: 429 }
       );
     }
     
+    if (error.status === 503 || error.message?.includes('service unavailable')) {
+      return NextResponse.json(
+        { error: 'Service unavailable', message: 'Please try again later' },
+        { status: 503 }
+      );
+    }
+    
+    // Generic server error
     return NextResponse.json(
       { error: 'Internal server error', message: 'An unexpected error occurred' },
       { status: 500 }
