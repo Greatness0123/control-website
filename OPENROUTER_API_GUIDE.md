@@ -79,8 +79,8 @@ curl -X POST https://your-domain.com/api/ai \
   -d '{
     "api_key": "ctrl-xxxxxxxxxxxxxxxx",
     "prompt": "Explain quantum computing in simple terms",
+    "model": "openai/gpt-4",
     "options": {
-      "model": "openai/gpt-4",
       "max_tokens": 500,
       "temperature": 0.7
     }
@@ -118,8 +118,9 @@ Generate AI responses.
 {
   "api_key": "ctrl-xxxxxxxxxxxxxxxx",
   "prompt": "Your prompt here",
+  "model": "openai/gpt-4",  // Optional: Specify model directly at top level (recommended)
   "options": {
-    "model": "openai/gpt-4",
+    "model": "openai/gpt-4",  // Optional: Alternative way to specify model (for backward compatibility)
     "max_tokens": 500,
     "temperature": 0.7,
     "top_p": 1,
@@ -128,6 +129,19 @@ Generate AI responses.
   }
 }
 ```
+
+**Model Parameter:**
+The `model` parameter can be specified either at the top level of the request or within the `options` object. If specified in both places, the top-level parameter takes precedence.
+
+**Supported Model Formats:**
+Models should be specified in the format `provider/model-name`, for example:
+- `openai/gpt-4`
+- `openai/gpt-3.5-turbo`
+- `anthropic/claude-2`
+- `google/gemini-pro`
+- `meta/llama-3-70b-instruct`
+
+If no model is specified, the default model for the user's tier will be used.
 
 **Response:**
 ```json
@@ -181,6 +195,10 @@ The system automatically monitors OpenRouter key health and rotates keys as need
 
 4. **"Monthly token quota exceeded"**
    - Upgrade plan or wait for next billing cycle
+
+5. **"Invalid model format"**
+   - Ensure model follows the format `provider/model-name`
+   - Check if the model is supported by OpenRouter
 
 ### Logs and Monitoring
 - Check browser console for client-side errors

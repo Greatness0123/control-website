@@ -8,8 +8,9 @@ import { getHealthyOpenRouterKey, sendOpenRouterRequest } from '@/lib/openrouter
 const requestSchema = z.object({
   api_key: z.string().min(1),
   prompt: z.string().min(1),
+  model: z.string().optional(), // Allow model to be specified at the top level
   options: z.object({
-    model: z.string().optional(),
+    model: z.string().optional(), // Keep backward compatibility
     max_tokens: z.number().optional(),
     temperature: z.number().optional(),
     top_p: z.number().optional(),
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    const { api_key: parsedApiKey, prompt, options } = result.data;
+    const { api_key: parsedApiKey, prompt, model: topLevelModel, options } = result.data;
     api_key = parsedApiKey;
     
     // Validate the API key format
@@ -162,8 +163,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    // Get the model to use
-    let model = options?.model;
+    // Get the model to use - prioritize top-level model parameter
+    let model = topLevelModel || options?.model;
     if (!model) {
       // Get the default model for this tier using direct Firestore/Redis access
       try {
@@ -174,6 +175,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         model = 'openai/gpt-3.5-turbo'; // fallback
       }
     }
+    
+    // Log the model being used for debugging and analytics
+    console.log(`Using model: ${model} for request from API key: ${api_key.substring(0, 8)}...`);
     
     // Estimate token usage (very rough estimate)
     const estimatedTokens = Math.ceil(prompt.length / 4) + (options?.max_tokens || 1000);
@@ -196,40 +200,70 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    // Send the request to OpenRouter
-    const openRouterResponse = await sendOpenRouterRequest(
-      {
-        prompt,
-        model,
-        max_tokens: options?.max_tokens,
-        temperature: options?.temperature,
-        top_p: options?.top_p,
-        stream: options?.stream,
-        stop: options?.stop,
-      },
-      openRouterKey
-    );
-    
-    // Calculate actual token usage
-    const tokensUsed = openRouterResponse.usage?.total_tokens || estimatedTokens;
-    
-    // Update token quota and API key usage
-    await updateTokenQuota(api_key, tokensUsed);
-    await updateApiKeyUsage(api_key, tokensUsed);
-    
-    // Log the API key usage
-    await logApiKeyUsage(
-      api_key,
-      apiKeyData.owner_uid,
-      '/api/ai',
-      tokensUsed,
-      true,
-      undefined,
-      openRouterKey
-    );
-    
-    // Return the OpenRouter response
-    return NextResponse.json(openRouterResponse);
+    try {
+      // Send the request to OpenRouter
+      const openRouterResponse = await sendOpenRouterRequest(
+        {
+          prompt,
+          model,
+          max_tokens: options?.max_tokens,
+          temperature: options?.temperature,
+          top_p: options?.top_p,
+          stream: options?.stream,
+          stop: options?.stop,
+        },
+        openRouterKey
+      );
+      
+      // Calculate actual token usage
+      const tokensUsed = openRouterResponse.usage?.total_tokens || estimatedTokens;
+      
+      // Update token quota and API key usage
+      await updateTokenQuota(api_key, tokensUsed);
+      await updateApiKeyUsage(api_key, tokensUsed);
+      
+      // Log the API key usage
+      await logApiKeyUsage(
+        api_key,
+        apiKeyData.owner_uid,
+        '/api/ai',
+        tokensUsed,
+        true,
+        undefined,
+        openRouterKey
+      );
+      
+      // Return the OpenRouter response
+      return NextResponse.json(openRouterResponse);
+    } catch (openRouterError: any) {
+      // Check if this is an authentication error
+      if (openRouterError.message && 
+          (openRouterError.message.includes('authentication') || 
+           openRouterError.message.includes('UNAUTHENTICATED'))) {
+        console.error('OpenRouter authentication error:', openRouterError);
+        
+        return NextResponse.json(
+          { 
+            error: 'OpenRouter authentication error', 
+            message: 'The model you requested requires authentication or is not available with the current API key. Please try a different model or contact support.',
+            details: openRouterError.message
+          },
+          { status: 401 }
+        );
+      }
+      
+      // For other OpenRouter errors
+      console.error('OpenRouter error:', openRouterError);
+      
+      return NextResponse.json(
+        { 
+          error: 'OpenRouter error', 
+          message: openRouterError.message || 'An error occurred while processing your request',
+          details: typeof openRouterError === 'object' ? JSON.stringify(openRouterError) : openRouterError.toString()
+        },
+        { status: 502 }
+      );
+    }
   } catch (error: any) {
     console.error('Error in /api/ai:', error);
     

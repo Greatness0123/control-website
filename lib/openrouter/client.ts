@@ -110,6 +110,22 @@ export async function getHealthyOpenRouterKey(policy: 'round_robin' | 'least_loa
 }
 
 /**
+ * Validate if a model name is in the correct format for OpenRouter
+ * @param model - The model name to validate
+ * @returns True if the model name is valid
+ */
+export function validateModelName(model: string): boolean {
+  // Special case for x-ai/grok models with :free suffix
+  if (model.startsWith('x-ai/grok') && model.includes(':free')) {
+    return true;
+  }
+  
+  // OpenRouter models typically follow the format: provider/model-name
+  // Examples: openai/gpt-4, anthropic/claude-2, google/gemini-pro
+  return /^[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(model);
+}
+
+/**
  * Send a request to OpenRouter
  * @param options - The request options
  * @param apiKey - The API key to use
@@ -130,11 +146,45 @@ export async function sendOpenRouterRequest(
       throw new Error(`OpenRouter API key not found for key: ${apiKey}`);
     }
 
+    // Validate and normalize the model name
+    const defaultModel = 'openai/gpt-3.5-turbo';
+    let model = options.model || defaultModel;
+    
+    // If model doesn't follow the provider/model format, use default
+    if (model && !validateModelName(model)) {
+      console.warn(`Invalid model format: ${model}, using default: ${defaultModel}`);
+      model = defaultModel;
+    }
+    
+    // Log the model being used
+    console.log(`OpenRouter request with model: ${model}`);
+
     // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
+      // Prepare the request body
+      const requestBody = {
+        model: model,
+        messages: [
+          {
+            role: 'user',
+            content: options.prompt,
+          },
+        ],
+        max_tokens: options.max_tokens || 1000,
+        temperature: options.temperature || 0.7,
+        top_p: options.top_p || 1,
+        stream: options.stream || false,
+        stop: options.stop || [],
+      };
+
+      // Log the request for debugging
+      console.log(`OpenRouter request body: ${JSON.stringify(requestBody, null, 2)}`);
+      console.log(`OpenRouter API URL: ${OPENROUTER_API_URL}`);
+      console.log(`Using API key: ${apiKey} (env key: ${envKey.substring(0, 5)}...)`);
+
       // Send the request to OpenRouter
       const response = await fetch(OPENROUTER_API_URL, {
         method: 'POST',
@@ -144,20 +194,7 @@ export async function sendOpenRouterRequest(
           'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
           'X-Title': 'Control Desktop',
         },
-        body: JSON.stringify({
-          model: options.model || 'openai/gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'user',
-              content: options.prompt,
-            },
-          ],
-          max_tokens: options.max_tokens || 1000,
-          temperature: options.temperature || 0.7,
-          top_p: options.top_p || 1,
-          stream: options.stream || false,
-          stop: options.stop || [],
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
@@ -165,7 +202,32 @@ export async function sendOpenRouterRequest(
 
       // Check for errors
       if (!response.ok) {
-        const errorData = await response.json() as OpenRouterError;
+        const responseText = await response.text();
+        let errorData: OpenRouterError;
+        
+        try {
+          errorData = JSON.parse(responseText) as OpenRouterError;
+        } catch (parseError) {
+          console.error('Failed to parse error response:', responseText);
+          errorData = {
+            error: {
+              message: responseText || 'Unknown error',
+              type: 'unknown',
+              code: response.status
+            }
+          };
+        }
+        
+        // Handle authentication errors
+        if (response.status === 401 || response.status === 403 || responseText.includes('UNAUTHENTICATED')) {
+          console.error(`Authentication error with OpenRouter: ${responseText}`);
+          await redis.set(
+            `${REDIS_KEYS.OPENROUTER_STATUS}${apiKey}`,
+            OpenRouterStatus.UNHEALTHY,
+            { ex: REDIS_TTL.UNHEALTHY }
+          );
+          throw new Error(`OpenRouter authentication error: Please check your API key or model access permissions`);
+        }
         
         // Handle rate limiting
         if (response.status === 429) {
@@ -174,7 +236,7 @@ export async function sendOpenRouterRequest(
             OpenRouterStatus.RATE_LIMITED,
             { ex: REDIS_TTL.RATE_LIMITED }
           );
-          throw new Error(`OpenRouter rate limited: ${errorData.error.message}`);
+          throw new Error(`OpenRouter rate limited: ${errorData.error?.message || 'Rate limit exceeded'}`);
         }
         
         // Handle other errors
@@ -183,11 +245,19 @@ export async function sendOpenRouterRequest(
           OpenRouterStatus.UNHEALTHY,
           { ex: REDIS_TTL.UNHEALTHY }
         );
-        throw new Error(`OpenRouter error (${response.status}): ${errorData.error.message}`);
+        throw new Error(`OpenRouter error (${response.status}): ${errorData.error?.message || 'Unknown error'}`);
       }
 
       // Parse the response
-      const data = await response.json() as OpenRouterResponse;
+      const responseText = await response.text();
+      let data: OpenRouterResponse;
+      
+      try {
+        data = JSON.parse(responseText) as OpenRouterResponse;
+      } catch (parseError) {
+        console.error('Failed to parse success response:', responseText);
+        throw new Error(`Failed to parse OpenRouter response: ${parseError}`);
+      }
       
       // Mark the key as healthy
       await redis.set(
