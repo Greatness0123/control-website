@@ -198,7 +198,7 @@ export default function DownloadsPage() {
               <DownloadCard 
                 platform="Windows" 
                 version="2.0.1" 
-                size="85 MB"
+                size="114 MB"
                 logoSrc="/images/logos/windows-logo.png"
                 downloadUrl="https://github.com/Greatness0123/control-desktop/releases/download/download/Control--0.2.4-Setup.zip"
                 delay={0.1}
@@ -206,7 +206,7 @@ export default function DownloadsPage() {
               <DownloadCard 
                 platform="macOS" 
                 version="2.0.1" 
-                size="92 MB"
+                size="200 MB"
                 logoSrc="/images/logos/apple-logo.png"
                 downloadUrl="https://github.com/Greatness0123/control-desktop/releases/download/download/macOS-dmg.zip"
                 delay={0.2}
